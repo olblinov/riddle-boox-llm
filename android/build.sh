@@ -30,7 +30,7 @@ fi
 TOOLS="$SDK/build-tools/35.0.0"
 rm -rf "$BUILD/classes"
 mkdir -p "$BUILD/classes" "$ROOT/outputs"
-"$TOOLS/aapt2" link -o "$BUILD/base.apk" -I "$SDK/platforms/android-35/android.jar" --manifest "$MANIFEST" --min-sdk-version 28 --target-sdk-version 30 --version-code 5 --version-name 0.5.0
+"$TOOLS/aapt2" link -o "$BUILD/base.apk" -I "$SDK/platforms/android-35/android.jar" --manifest "$MANIFEST" --min-sdk-version 28 --target-sdk-version 30 --version-code 6 --version-name 0.6.0
 python3 "$ROOT/android/prepare-sdk.py"
 SDK_CLASSPATH="$(printf '%s:' "$ROOT"/android/build-sdk/*.jar)"
 javac --release 8 -classpath "$SDK/platforms/android-35/android.jar:$SDK_CLASSPATH" -d "$BUILD/classes" "$SOURCE_DIR"/*.java

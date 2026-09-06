@@ -15,7 +15,7 @@ export function createMcp({
       "token",
     ),
 } = {}) {
-  const server = new McpServer({ name: "boox-review", version: "0.5.0" });
+  const server = new McpServer({ name: "boox-review", version: "0.6.0" });
   const request = async (endpoint, body) => {
     const token = (await readFile(tokenPath, "utf8")).trim();
     const serialized = body ? JSON.stringify(body) : undefined;
@@ -51,9 +51,11 @@ export function createMcp({
   };
   server.tool(
     "boox_present",
-    "Present a persistent page on paired BOOX for handwritten feedback. Provide exactly one PNG path, Markdown file path, plain text, or constrained diagram scene. Markdown defaults to a whole-document review: browse and annotate all pages, then Send once. Explicit markdown_page selects a legacy single-page review. Retain source checksum before adapting the original file. A pending review must be completed or cancelled first.",
+    "Present a persistent page on paired BOOX for handwritten feedback. Provide exactly one PNG path, Markdown file path, plain text, or constrained diagram scene. Markdown defaults to a whole-document review: browse and annotate all pages, then Send once. Explicit markdown_page selects a legacy single-page review. Retain source checksum before adapting the original file. New documents queue behind the active review without replacing its ink. Returned queuePosition identifies waiting order.",
     {
       title: z.string().min(1).max(200),
+      origin_thread_id: z.string().uuid().optional().describe("Actual originating Codex task ID, when known; never invent one"),
+      origin_workspace: z.string().optional().describe("Actual absolute task workspace; required with explicit origin_thread_id"),
       image_path: z.string().optional(),
       markdown_path: z.string().optional(),
       markdown_page: z.number().int().min(1).max(200).optional(),
@@ -82,6 +84,12 @@ export function createMcp({
       height: z.number().int().min(100).max(4096).optional(),
     },
     safe(async (args) => {
+      if (args.origin_thread_id && (!args.origin_workspace || !path.isAbsolute(args.origin_workspace)))
+        throw new Error("Explicit origin_thread_id requires absolute origin_workspace");
+      if (args.origin_workspace && !args.origin_thread_id) throw new Error("origin_workspace requires origin_thread_id");
+      const threadId = args.origin_thread_id ?? process.env.CODEX_THREAD_ID;
+      const origin = threadId && /^[a-f0-9-]{36}$/.test(threadId)
+        ? {threadId,workspace:args.origin_workspace ?? process.cwd()} : undefined;
       const inputs = [
         args.image_path,
         args.markdown_path,
@@ -157,10 +165,12 @@ export function createMcp({
             index === undefined
               ? {
                   title: args.title,
+                  ...(origin ? {origin} : {}),
                   pages: document.pages.map(pagePayload),
                 }
               : {
                   title: `${args.title.slice(0, 175)} · ${index}/${document.pages.length}`,
+                  ...(origin ? {origin} : {}),
                   ...pagePayload(page),
                 },
           ),
@@ -177,6 +187,7 @@ export function createMcp({
       return output(
         await request("/api/reviews", {
           title: args.title,
+          ...(origin ? {origin} : {}),
           ...(await renderPage(args)),
         }),
       );
@@ -247,6 +258,17 @@ export function createMcp({
     ),
   );
   server.tool(
+    "boox_feedback_inbox",
+    "List submitted feedback not yet acknowledged. Fetch each exact review ID with boox_wait_feedback; inspect every image before acknowledging. Does not wake an idle task.",
+    {}, safe(async () => output(await request("/api/feedback-inbox"))),
+  );
+  server.tool(
+    "boox_acknowledge_feedback",
+    "Mark a specific submission read after inspecting all annotated pages. Does not approve content, edit source, or delete history.",
+    {review_id:z.string().uuid(),submission_id:z.string().min(1).max(128)},
+    safe(async ({review_id,submission_id}) => output(await request(`/api/reviews/${review_id}/acknowledge`, {submissionId:submission_id}))),
+  );
+  server.tool(
     "boox_status",
     "Read bridge health and current BOOX review. Does not prove a physical tablet is connected.",
     {},
@@ -254,6 +276,8 @@ export function createMcp({
       output({
         health: await request("/api/health"),
         ...(await request("/api/reviews/current")),
+        queue: await request("/api/queue"),
+        unreadFeedback: await request("/api/feedback-inbox"),
       }),
     ),
   );

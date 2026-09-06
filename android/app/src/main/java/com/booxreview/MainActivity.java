@@ -17,6 +17,7 @@ public class MainActivity extends Activity {
   final Handler handler = new Handler(Looper.getMainLooper());
   InkView ink;
   BooxInk nativeInk;
+  WifiDiscovery wifiDiscovery;
   boolean dialogOpen;
   TextView status;
   Button send, previous, next;
@@ -86,7 +87,9 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Keep", null)
                 .show();
         });
-    button(bar, "Width", v -> ink.fit());
+    button(bar, "Queue", v -> showQueue());
+    button(bar, "Page", v -> ink.fit());
+    button(bar, "Width", v -> ink.fitWidth());
     send = button(bar, "Send", v -> submit());
     send.setEnabled(false);
     root.addView(bar);
@@ -130,6 +133,10 @@ public class MainActivity extends Activity {
         .setOnDismissListener(
             dialog -> {
               dialogOpen = false;
+              if (wifiDiscovery != null) {
+                wifiDiscovery.stop();
+                wifiDiscovery = null;
+              }
               ink.invalidate();
               ink.post(() -> nativeInk.refresh());
             });
@@ -182,6 +189,7 @@ public class MainActivity extends Activity {
   }
 
   protected void onDestroy() {
+    if (wifiDiscovery != null) wifiDiscovery.stop();
     nativeInk.close();
     destroyed = true;
     stopped = true;
@@ -204,13 +212,66 @@ public class MainActivity extends Activity {
         });
   }
 
+  void showQueue() {
+    if (busy) return;
+    TextView content = new TextView(this);
+    content.setPadding(24, 16, 24, 16);
+    content.setText("Loading queue…");
+    ScrollView scroll = new ScrollView(this);
+    scroll.addView(content);
+    AlertDialog dialog =
+        dialogBuilder()
+            .setTitle("Review queue")
+            .setView(scroll)
+            .setPositiveButton("Close", null)
+            .show();
+    busy = true;
+    updateNavigation();
+    worker.execute(
+        () -> {
+          try {
+            JSONArray reviews =
+                new JSONObject(new String(request("/api/queue", null), "UTF-8"))
+                    .getJSONArray("reviews");
+            StringBuilder text = new StringBuilder();
+            for (int i = 0; i < reviews.length(); i++) {
+              JSONObject review = reviews.getJSONObject(i);
+              text.append(i + 1)
+                  .append(". ")
+                  .append(review.optString("title", "Untitled"))
+                  .append(" — ")
+                  .append(review.optInt("pageCount", 1))
+                  .append(" pages")
+                  .append(i == 0 ? " (current)" : "")
+                  .append("\n\n");
+            }
+            String result = text.length() == 0 ? "No pending reviews." : text.toString();
+            updateUi(
+                () -> {
+                  if (dialog.isShowing()) content.setText(result);
+                });
+          } catch (Exception error) {
+            updateUi(
+                () -> {
+                  if (dialog.isShowing()) content.setText(error.getMessage());
+                });
+          } finally {
+            updateUi(
+                () -> {
+                  busy = false;
+                  updateNavigation();
+                });
+          }
+        });
+  }
+
   void pair() {
     if (busy) return;
     LinearLayout form = new LinearLayout(this);
     form.setOrientation(1);
     form.setPadding(24, 12, 24, 12);
     EditText url = new EditText(this);
-    url.setHint("http://192.168.1.10:port");
+    url.setHint("http://Mac-Wi-Fi-address:4317");
     url.setSingleLine();
     url.setText(base);
     EditText key = new EditText(this);
@@ -218,12 +279,22 @@ public class MainActivity extends Activity {
     key.setSingleLine();
     key.setInputType(129);
     key.setText(token);
+    TextView discoveryStatus = new TextView(this);
+    discoveryStatus.setText("Looking for desktops on this Wi-Fi…");
+    LinearLayout found = new LinearLayout(this);
+    found.setOrientation(1);
     form.addView(url);
     form.addView(key);
+    form.addView(discoveryStatus);
+    form.addView(found);
+    ScrollView scroll = new ScrollView(this);
+    scroll.addView(form);
     dialogBuilder()
         .setTitle("Connect to desktop")
-        .setMessage("Use a trusted Wi-Fi network or USB. Local HTTP traffic is unencrypted.")
-        .setView(form)
+        .setMessage(
+            "Connect tablet and Mac to the same trusted Wi-Fi. Select your desktop below, or enter"
+                + " its URL. Existing token stays saved. USB URL also works.")
+        .setView(scroll)
         .setPositiveButton(
             "Connect",
             (d, w) -> {
@@ -239,22 +310,84 @@ public class MainActivity extends Activity {
                   throw new Exception("Use server URL without path");
                 String newToken = key.getText().toString().trim();
                 if (newToken.isEmpty()) throw new Exception("Token required");
-                if (!reviewId.isEmpty() && (!candidate.equals(base) || !newToken.equals(token)))
-                  throw new Exception("Finish current review before changing connection");
-                base = candidate;
-                token = newToken;
-                getPreferences(0).edit().putString("base", base).putString("token", token).apply();
-                nextPoll = 0;
-              } catch (Exception e) {
-                status.setText(e.getMessage());
+                String pendingId = reviewId;
+                if (!pendingId.isEmpty() && !newToken.equals(token))
+                  throw new Exception("Finish current review before changing token");
+                busy = true;
+                updateNavigation();
+                status.setText("Checking desktop connection…");
+                worker.execute(
+                    () -> {
+                      try {
+                        JSONObject health =
+                            new JSONObject(
+                                new String(
+                                    requestAt(candidate, newToken, "/api/health", null), "UTF-8"));
+                        if (!health.optBoolean("ok"))
+                          throw new IOException("Desktop health check failed");
+                        if (!pendingId.isEmpty()) {
+                          JSONObject pending =
+                              new JSONObject(
+                                  new String(
+                                      requestAt(
+                                          candidate, newToken, "/api/reviews/" + pendingId, null),
+                                      "UTF-8"));
+                          if (!pendingId.equals(pending.optString("id")))
+                            throw new IOException("Desktop does not contain current review");
+                        }
+                        updateUi(
+                            () -> {
+                              base = candidate;
+                              token = newToken;
+                              getPreferences(0)
+                                  .edit()
+                                  .putString("base", base)
+                                  .putString("token", token)
+                                  .apply();
+                              nextPoll = 0;
+                              status.setText("Desktop connected");
+                            });
+                      } catch (Exception error) {
+                        updateUi(() -> status.setText(error.getMessage()));
+                      } finally {
+                        updateUi(
+                            () -> {
+                              busy = false;
+                              updateNavigation();
+                            });
+                      }
+                    });
+              } catch (Exception error) {
+                status.setText(error.getMessage());
               }
             })
         .setNegativeButton("Cancel", null)
         .show();
+    wifiDiscovery =
+        new WifiDiscovery(
+            this,
+            new WifiDiscovery.Listener() {
+              public void status(String text) {
+                discoveryStatus.setText(text);
+              }
+
+              public void found(String name, String address) {
+                discoveryStatus.setText("Select your Mac, then Connect:");
+                Button desktop = new Button(MainActivity.this);
+                desktop.setText(name + "\n" + address);
+                desktop.setOnClickListener(v -> url.setText(address));
+                found.addView(desktop);
+              }
+            });
+    wifiDiscovery.start();
   }
 
   byte[] request(String path, JSONObject body) throws Exception {
-    HttpURLConnection c = (HttpURLConnection) new URL(base + path).openConnection();
+    return requestAt(base, token, path, body);
+  }
+
+  byte[] requestAt(String server, String key, String path, JSONObject body) throws Exception {
+    HttpURLConnection c = (HttpURLConnection) new URL(server + path).openConnection();
     activeConnection = c;
     if (destroyed) {
       c.disconnect();
@@ -263,7 +396,7 @@ public class MainActivity extends Activity {
     c.setConnectTimeout(7000);
     c.setReadTimeout(15000);
     c.setInstanceFollowRedirects(false);
-    c.setRequestProperty("Authorization", "Bearer " + token);
+    c.setRequestProperty("Authorization", "Bearer " + key);
     try {
       if (body != null) {
         c.setRequestMethod("POST");
@@ -445,6 +578,13 @@ public class MainActivity extends Activity {
     Bitmap bitmap = BitmapFactory.decodeFile(new File(getFilesDir(), state.file).toString());
     if (bitmap == null) throw new IOException("Cached page missing");
     Bitmap old = ink.page;
+    if (state.bounds == null)
+      state.bounds =
+          state.includeCanvas
+              ? CanvasBounds.around(bitmap.getWidth(), bitmap.getHeight())
+              : new CanvasBounds(0, 0, bitmap.getWidth(), bitmap.getHeight());
+    state.bounds.validate(bitmap.getWidth(), bitmap.getHeight());
+    ink.bounds = state.bounds;
     ink.setPage(bitmap);
     ink.load(state.strokes);
     ink.locked = submissionAttempted;
@@ -521,10 +661,24 @@ public class MainActivity extends Activity {
                 Bitmap original =
                     BitmapFactory.decodeFile(new File(getFilesDir(), state.file).toString());
                 if (original == null) throw new IOException("Cached page missing");
-                Bitmap composite = original.copy(Bitmap.Config.ARGB_8888, true);
+                CanvasBounds bounds =
+                    state.bounds == null
+                        ? new CanvasBounds(0, 0, original.getWidth(), original.getHeight())
+                        : state.bounds;
+                bounds.validate(original.getWidth(), original.getHeight());
+                Bitmap composite;
+                if (state.includeCanvas) {
+                  composite =
+                      Bitmap.createBitmap(bounds.width, bounds.height, Bitmap.Config.ARGB_8888);
+                  Canvas background = new Canvas(composite);
+                  background.drawColor(Color.WHITE);
+                  background.drawBitmap(original, -bounds.x, -bounds.y, null);
+                } else composite = original.copy(Bitmap.Config.ARGB_8888, true);
                 original.recycle();
                 try {
-                  drawStoredInk(new Canvas(composite), state.strokes);
+                  Canvas outputCanvas = new Canvas(composite);
+                  if (state.includeCanvas) outputCanvas.translate(-bounds.x, -bounds.y);
+                  drawStoredInk(outputCanvas, state.strokes);
                   ByteArrayOutputStream out = new ByteArrayOutputStream();
                   composite.compress(Bitmap.CompressFormat.PNG, 100, out);
                   payloadEstimate +=
@@ -533,14 +687,16 @@ public class MainActivity extends Activity {
                           + 128;
                   if (payloadEstimate > 24 * 1024 * 1024)
                     throw new IOException("Document exceeds 24 MiB; draft kept");
-                  feedback.put(
+                  JSONObject pageFeedback =
                       new JSONObject()
                           .put("pageIndex", i + 1)
                           .put(
                               "compositeBase64",
                               android.util.Base64.encodeToString(
                                   out.toByteArray(), android.util.Base64.NO_WRAP))
-                          .put("strokes", state.strokes));
+                          .put("strokes", state.strokes);
+                  if (state.includeCanvas) pageFeedback.put("canvasBounds", boundsJson(bounds));
+                  feedback.put(pageFeedback);
                 } finally {
                   composite.recycle();
                 }
@@ -550,6 +706,8 @@ public class MainActivity extends Activity {
               else
                 body.put("compositeBase64", feedback.getJSONObject(0).getString("compositeBase64"))
                     .put("strokes", feedback.getJSONObject(0).getJSONArray("strokes"));
+              if (!documentReview && feedback.getJSONObject(0).has("canvasBounds"))
+                body.put("canvasBounds", feedback.getJSONObject(0).getJSONObject("canvasBounds"));
               byte[] encoded = body.toString().getBytes("UTF-8");
               if (encoded.length > 24 * 1024 * 1024)
                 throw new IOException(
@@ -651,10 +809,13 @@ public class MainActivity extends Activity {
             new JSONObject()
                 .put("file", page.file)
                 .put("strokes", page.strokes)
+                .put("includeCanvas", page.includeCanvas)
+                .put(
+                    "canvasBounds", page.bounds == null ? JSONObject.NULL : boundsJson(page.bounds))
                 .put("visited", page.visited));
       JSONObject draft =
           new JSONObject()
-              .put("version", 2)
+              .put("version", 3)
               .put("reviewId", reviewId)
               .put("submissionId", submissionId)
               .put("submissionAttempted", submissionAttempted)
@@ -689,6 +850,7 @@ public class MainActivity extends Activity {
         legacy.file = "page.png";
         legacy.strokes = draft.getJSONArray("strokes");
         legacy.visited = true;
+        legacy.includeCanvas = !submissionAttempted;
         pages.add(legacy);
       } else {
         for (int i = 0; i < saved.length(); i++) {
@@ -699,6 +861,12 @@ public class MainActivity extends Activity {
             throw new IOException("Invalid cached page name");
           page.strokes = entry.getJSONArray("strokes");
           page.visited = entry.optBoolean("visited", false);
+          page.includeCanvas = entry.optBoolean("includeCanvas", !submissionAttempted);
+          JSONObject b = entry.optJSONObject("canvasBounds");
+          if (b != null)
+            page.bounds =
+                new CanvasBounds(
+                    b.getInt("x"), b.getInt("y"), b.getInt("width"), b.getInt("height"));
           pages.add(page);
         }
       }
@@ -714,14 +882,27 @@ public class MainActivity extends Activity {
     }
   }
 
+  static JSONObject boundsJson(CanvasBounds bounds) throws JSONException {
+    return new JSONObject()
+        .put("x", bounds.x)
+        .put("y", bounds.y)
+        .put("width", bounds.width)
+        .put("height", bounds.height);
+  }
+
   static class PageState {
     String file;
+    CanvasBounds bounds;
+    boolean includeCanvas = true;
     JSONArray strokes = new JSONArray();
     boolean visited;
   }
 
   class InkView extends View {
     Bitmap page;
+    CanvasBounds bounds;
+    final PageSwipe swipe = new PageSwipe();
+    float defaultScale;
     ArrayList<Stroke> strokes = new ArrayList<>();
     Stroke active;
     Paint paint = new Paint(3);
@@ -761,12 +942,26 @@ public class MainActivity extends Activity {
       if (penActive()) return;
       if (nativeInk != null) nativeInk.suspend();
       if (page != null && getWidth() > 0) {
-        scale = (float) getWidth() / page.getWidth();
-        dx = 0;
+        float bottomMargin = Math.min(256, bounds.y + bounds.height - page.getHeight());
+        scale =
+            Math.min(
+                (float) getWidth() / page.getWidth(),
+                (float) getHeight() / (page.getHeight() + bottomMargin));
+        defaultScale = scale;
+        dx = (getWidth() - page.getWidth() * scale) / 2;
         dy = 0;
         invalidate();
         postOnAnimation(() -> post(() -> nativeInk.refresh()));
       }
+    }
+
+    void fitWidth() {
+      if (page == null || penActive()) return;
+      nativeInk.suspend();
+      scale = (float) getWidth() / page.getWidth();
+      dx = dy = 0;
+      invalidate();
+      postOnAnimation(() -> post(() -> nativeInk.refresh()));
     }
 
     protected void onSizeChanged(int w, int h, int ow, int oh) {
@@ -779,9 +974,14 @@ public class MainActivity extends Activity {
       c.save();
       c.translate(dx, dy);
       c.scale(scale, scale);
-      c.clipRect(0, 0, page.getWidth(), page.getHeight());
+      c.clipRect(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height);
       bitmapPaint.setFilterBitmap(Math.abs(scale - Math.round(scale)) > .0001f);
       c.drawBitmap(page, 0, 0, bitmapPaint);
+      Paint edge = new Paint();
+      edge.setColor(Color.LTGRAY);
+      edge.setStyle(Paint.Style.STROKE);
+      edge.setStrokeWidth(1 / scale);
+      c.drawRect(0, 0, page.getWidth(), page.getHeight(), edge);
       drawInk(c);
       c.restore();
       if (nativeInk != null) nativeInk.onBackingDrawn();
@@ -824,6 +1024,7 @@ public class MainActivity extends Activity {
       int action = event.getActionMasked();
       int actionIndex = event.getActionIndex();
       if (action == MotionEvent.ACTION_CANCEL) {
+        swipe.cancel();
         if (stylusPointerId != -1) finishStylus(true);
         suppressNavigation = false;
         zoom.onTouchEvent(event);
@@ -833,6 +1034,7 @@ public class MainActivity extends Activity {
           && isPen(event, actionIndex)) {
         requestUnbufferedDispatch(event);
         suppressNavigation = true;
+        swipe.cancel();
         // Cancel any finger gesture before freezing the transform for ink.
         MotionEvent cancel = MotionEvent.obtain(event);
         cancel.setAction(MotionEvent.ACTION_CANCEL);
@@ -888,24 +1090,38 @@ public class MainActivity extends Activity {
       }
       // Palm contacts that remain after pen-up cannot become a pan gesture.
       if (suppressNavigation) {
+        swipe.cancel();
         if (action == MotionEvent.ACTION_UP) suppressNavigation = false;
         return true;
       }
       for (int index = 0; index < event.getPointerCount(); index++) {
         if (isPen(event, index)) return true;
       }
+      if (action == MotionEvent.ACTION_POINTER_DOWN || event.getPointerCount() > 1) swipe.cancel();
       zoom.onTouchEvent(event);
       if (action == MotionEvent.ACTION_DOWN) {
+        swipe.begin(
+            event.getX(),
+            event.getY(),
+            event.getEventTime(),
+            Math.abs(scale / defaultScale - 1) <= .08f && !penActive());
         lastX = event.getX();
         lastY = event.getY();
       } else if (action == MotionEvent.ACTION_MOVE) {
-        if (event.getPointerCount() == 1 && !zoom.isInProgress()) {
+        if (event.getPointerCount() == 1
+            && !zoom.isInProgress()
+            && !swipe.horizontal(event.getX(), event.getY())) {
           dx += event.getX() - lastX;
           dy += event.getY() - lastY;
           invalidate();
         }
         lastX = event.getX();
         lastY = event.getY();
+      } else if (action == MotionEvent.ACTION_UP) {
+        int direction =
+            swipe.finish(
+                event.getX(), event.getY(), event.getEventTime(), Math.max(100, getWidth() * .18f));
+        if (direction != 0) navigate(direction);
       } else if (action == MotionEvent.ACTION_POINTER_UP) {
         int remainingIndex = actionIndex == 0 ? 1 : 0;
         lastX = event.getX(remainingIndex);
@@ -917,8 +1133,8 @@ public class MainActivity extends Activity {
     void add(float x, float y, float p) {
       active.points.add(
           new float[] {
-            Math.max(0, Math.min(page.getWidth(), x)),
-            Math.max(0, Math.min(page.getHeight(), y)),
+            Math.max(bounds.x, Math.min(bounds.x + bounds.width, x)),
+            Math.max(bounds.y, Math.min(bounds.y + bounds.height, y)),
             Math.max(.1f, Math.min(1, p))
           });
     }

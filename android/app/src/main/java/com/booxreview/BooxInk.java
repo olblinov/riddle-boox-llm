@@ -99,13 +99,14 @@ final class BooxInk {
       }
       Rect visible =
           new Rect(
-              Math.max(0, (int) Math.ceil(view.dx)),
-              Math.max(0, (int) Math.ceil(view.dy)),
+              Math.max(0, (int) Math.ceil(view.dx + view.bounds.x * view.scale)),
+              Math.max(0, (int) Math.ceil(view.dy + view.bounds.y * view.scale)),
               Math.min(
-                  view.getWidth(), (int) Math.floor(view.dx + view.page.getWidth() * view.scale)),
+                  view.getWidth(),
+                  (int) Math.floor(view.dx + (view.bounds.x + view.bounds.width) * view.scale)),
               Math.min(
                   view.getHeight(),
-                  (int) Math.floor(view.dy + view.page.getHeight() * view.scale)));
+                  (int) Math.floor(view.dy + (view.bounds.y + view.bounds.height) * view.scale)));
       if (visible.isEmpty()) {
         suspend();
         return;
@@ -200,6 +201,7 @@ final class BooxInk {
       pen |= tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER;
     }
     if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+      view.swipe.cancel();
       suspend();
       fingerGesture = false;
       view.suppressNavigation = false;
@@ -207,6 +209,7 @@ final class BooxInk {
       return true;
     }
     if (drawing) {
+      if (finger) view.swipe.cancel();
       if (finger) view.suppressNavigation = event.getActionMasked() != MotionEvent.ACTION_UP;
       return true;
     }
@@ -240,7 +243,7 @@ final class BooxInk {
   private void append(TouchPoint point) {
     if (point == null || view.page == null) return;
     float x = (point.x - strokeDx) / strokeScale, y = (point.y - strokeDy) / strokeScale;
-    if (x < 0 || y < 0 || x > view.page.getWidth() || y > view.page.getHeight()) return;
+    if (!view.bounds.contains(x, y)) return;
     buffer.add(new float[] {x, y, Math.max(.1f, Math.min(1f, point.pressure / maxPressure))});
   }
 
@@ -253,7 +256,7 @@ final class BooxInk {
     ArrayList<float[]> points = new ArrayList<>();
     for (TouchPoint point : list.getPoints()) {
       float x = (point.x - strokeDx) / strokeScale, y = (point.y - strokeDy) / strokeScale;
-      if (x >= 0 && y >= 0 && x <= view.page.getWidth() && y <= view.page.getHeight())
+      if (view.bounds.contains(x, y))
         points.add(new float[] {x, y, Math.max(.1f, Math.min(1f, point.pressure / maxPressure))});
     }
     buffer.replace(points);

@@ -18,7 +18,7 @@ Bearer token on every /api request. JSON unless image endpoint. Error: {error:st
 GET /api/health -> {ok:true}
 GET /api/reviews/current -> {review:null|{id,title,width,height,status,createdAt,imageUrl}}
 GET /api/reviews/:id/image -> image/png (imageUrl is relative URL of this endpoint)
-POST /api/reviews -> {title,imageBase64,width,height} -> review metadata (201); only one pending review; conflict 409.
+POST /api/reviews -> {title,imageBase64,width,height} -> review metadata (201); enqueue without replacing active review; maximum 100 pending documents.
 GET /api/reviews/:id -> review metadata
 POST /api/reviews/:id/feedback -> {submissionId,compositeBase64,strokes:[{points:[{x,y,pressure}],width}],note?:string} -> {ok:true,reviewId,status:"submitted"}
 GET /api/reviews/:id/feedback -> {status:"pending"} or {status:"submitted",reviewId,compositeBase64,strokes,note}
@@ -52,3 +52,11 @@ Version 0.4.0 targets reported pen-down delay. The user approved the app-local A
 Margin-note refinement: use an unruled 96-pixel border, about 11 mm at 227 ppi, around generated Markdown and text pages. No dedicated comments section or box. Keep 36-pixel body text; repaginate instead of scaling down. Keep the source/page footer near the bottom edge. Existing review images remain immutable so saved ink stays aligned. Explicit image and scene coordinates remain unchanged; their author reserves the same border.
 
 Sent-document history uses a separate read-only tablet viewer and local image cache. Default retention is 90 days after submission, with pending drafts excluded. Mac history endpoint lists metadata separately from full feedback downloads. See history.md.
+
+## Handwritten feedback update 0.6
+
+Queue pending documents FIFO, bind each returned submission to its review ID and source snapshot, and track unread feedback durably. Optional origin records task ID and workspace; never process another task's inbox entries blindly. Automatic idle-task wake remains unavailable through the current supported desktop connection.
+
+Android expanded feedback uses canvasBounds with signed source origin. The source remains unchanged, ink may extend up to 512 pixels outside each edge, and export contains the entire declared area within 4096/16M limits. Default Page view exposes writing space; Width remains available for text detail. Single-finger horizontal swipes at page-fit navigate; zoomed gestures pan.
+
+Wi-Fi-first pairing discovers the Mac via Bonjour _boox-review._tcp and authenticates before switching from an existing connection. Manual LAN URL and USB remain available. Discovery broadcasts service address only, never token.

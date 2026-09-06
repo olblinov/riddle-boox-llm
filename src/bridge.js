@@ -1,4 +1,5 @@
 import http from "node:http";
+import { spawn } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -8,6 +9,7 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export async function createBridge({
   directory = path.join(root, ".runtime"),
   publicDirectory = path.join(root, "public"),
+  advertise = false,
 } = {}) {
   const store = await new Store(directory).init();
   let lastTabletPollAt = null;
@@ -78,6 +80,10 @@ export async function createBridge({
           if (!body || typeof body !== "object" || Array.isArray(body))
             fail(400, "JSON object required");
         }
+        if (req.method === "GET" && url.pathname === "/api/feedback-inbox")
+          return json(200, store.feedbackInbox());
+        if (req.method === "GET" && url.pathname === "/api/queue")
+          return json(200, store.reviewQueue());
         if (req.method === "GET" && url.pathname === "/api/history")
           return json(200, await store.history());
         if (req.method === "GET" && url.pathname === "/api/health")
@@ -90,7 +96,7 @@ export async function createBridge({
         if (req.method === "POST" && url.pathname === "/api/reviews")
           return json(201, await store.create(body));
         const match = url.pathname.match(
-          /^\/api\/reviews\/([a-f0-9-]{36})(?:\/(image|feedback|cancel))?$/,
+          /^\/api\/reviews\/([a-f0-9-]{36})(?:\/(image|feedback|cancel|acknowledge))?$/,
         );
         if (match) {
           const [, id, operation] = match;
@@ -111,6 +117,8 @@ export async function createBridge({
             return json(200, store.feedback(id));
           if (req.method === "POST" && operation === "feedback")
             return json(200, await store.submit(id, body));
+          if (req.method === "POST" && operation === "acknowledge")
+            return json(200, await store.acknowledgeFeedback(id, body.submissionId));
           if (req.method === "POST" && operation === "cancel")
             return json(200, await store.cancel(id));
         }
@@ -159,6 +167,14 @@ export async function createBridge({
       else res.end();
     }
   });
+  let announcement;
+  if (advertise && process.platform === "darwin") {
+    server.once("listening", () => {
+      announcement = spawn("/usr/bin/dns-sd", ["-R", "BOOX Review", "_boox-review._tcp", "local", String(server.address().port)], {stdio:"ignore"});
+      announcement.on("error", error => console.error("Wi-Fi discovery unavailable:", error.message));
+    });
+    server.once("close", () => announcement?.kill());
+  }
   await store.history();
   const retentionTimer = setInterval(() => {
     store.history().catch((error) => console.error("History retention failed:", error.message));
@@ -175,9 +191,14 @@ if (
 ) {
   const { server } = await createBridge({
     directory: process.env.BOOX_DATA_DIR,
+    advertise: process.env.BOOX_DISCOVERY !== "0",
   });
   const host = process.env.BOOX_HOST ?? "127.0.0.1";
   const port = Number(process.env.BOOX_PORT ?? 4317);
+  for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
+    server.closeAllConnections();
+    server.close(() => process.exit(0));
+  });
   server.listen(port, host, () =>
     console.error(
       `BOOX bridge listening on http://${host}:${port}. Pairing token in .runtime/token (or BOOX_DATA_DIR/token).`,

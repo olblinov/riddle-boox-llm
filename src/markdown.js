@@ -1,6 +1,8 @@
 import MarkdownIt from "markdown-it";
 import sharp from "sharp";
-import { open } from "node:fs/promises";
+import { open, realpath, access } from "node:fs/promises";
+import { constants } from "node:fs";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -56,7 +58,11 @@ function inlineRuns(tokens = []) {
     } else if (token.type === "image")
       add(
         `[Image not rendered: ${token.content || "no alt text"} (${token.attrGet("src") || "no source"})]`,
-        { italic: true },
+        {
+          italic: true,
+          imageSource: token.attrGet("src") || "",
+          imageAlt: token.content || "",
+        },
       );
     else if (token.type === "text" || token.type === "html_inline")
       add(token.content);
@@ -122,10 +128,176 @@ function dimensions(width, height) {
   };
 }
 
+const require = createRequire(import.meta.url);
+
+async function localImage(source, sourceDirectory) {
+  if (!sourceDirectory) throw new Error("no source directory available");
+  const decoded = decodeURIComponent(source);
+  if (
+    !decoded ||
+    /^(?:[a-z][a-z0-9+.-]*:|[\\/])/i.test(decoded) ||
+    decoded.includes("\0")
+  )
+    throw new Error("only relative local image paths are allowed");
+  if (
+    decoded.split(/[\\/]/).some((part) => part.startsWith(".") && part !== ".")
+  )
+    throw new Error("hidden paths and parent traversal are not allowed");
+  const root = await realpath(sourceDirectory);
+  const filename = await realpath(path.resolve(root, decoded));
+  if (!filename.startsWith(root + path.sep))
+    throw new Error("image escapes source directory");
+  const file = await open(filename, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let bytes;
+  try {
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.size > 10 * 1024 * 1024)
+      throw new Error("image must be a regular file under 10 MiB");
+    const buffer = Buffer.alloc(Math.min(stat.size + 1, 10 * 1024 * 1024 + 1));
+    let length = 0;
+    while (length < buffer.length) {
+      const read = await file.read(
+        buffer,
+        length,
+        buffer.length - length,
+        null,
+      );
+      if (!read.bytesRead) break;
+      length += read.bytesRead;
+    }
+    if (length > stat.size) throw new Error("image changed while reading");
+    bytes = buffer.subarray(0, length);
+  } finally {
+    await file.close();
+  }
+  const raster =
+    bytes
+      .subarray(0, 8)
+      .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+    (bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) ||
+    /^GIF8[79]a/.test(bytes.subarray(0, 6).toString("ascii")) ||
+    (bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+      bytes.subarray(8, 12).toString("ascii") === "WEBP");
+  if (!raster) throw new Error("supported image formats: PNG, JPEG, WebP, GIF");
+  const metadata = await sharp(bytes, {
+    limitInputPixels: 16_000_000,
+  }).metadata();
+  if (!["png", "jpeg", "webp", "gif"].includes(metadata.format))
+    throw new Error("supported image formats: PNG, JPEG, WebP, GIF");
+  return sharp(bytes, { limitInputPixels: 16_000_000 })
+    .rotate()
+    .flatten({ background: "white" })
+    .png()
+    .toBuffer();
+}
+
+async function mermaidImage(source, width, maxHeight, deadline) {
+  if (source.length > 16384) throw new Error("Mermaid diagram exceeds 16 KiB");
+  if (/%%\s*\{|^\s*---/m.test(source))
+    throw new Error("Mermaid configuration directives are disabled");
+  const { default: puppeteer } = await import("puppeteer-core");
+  const candidates = [
+    process.env.BOOX_CHROME_PATH,
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome",
+  ].filter(Boolean);
+  let executablePath;
+  for (const candidate of candidates) {
+    try {
+      await access(candidate, constants.X_OK);
+      executablePath = candidate;
+      break;
+    } catch {}
+  }
+  if (!executablePath)
+    throw new Error("Chrome/Chromium required; configure BOOX_CHROME_PATH");
+  const remaining = Math.max(1, Math.min(15000, deadline - Date.now()));
+  const browser = await puppeteer.launch({
+    executablePath,
+    headless: true,
+    timeout: remaining,
+    protocolTimeout: remaining,
+    args: [
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-sync",
+      "--no-first-run",
+    ],
+  });
+  const timer = setTimeout(
+    () => void browser.close().catch(() => {}),
+    remaining,
+  );
+  try {
+    const page = await browser.newPage();
+    await page.setRequestInterception(true);
+    page.on("request", (request) => void request.abort());
+    await page.setViewport({
+      width: Math.round(width),
+      height: 1200,
+      deviceScaleFactor: 2,
+    });
+    await page.setContent(
+      '<html><head></head><body style="margin:0;background:white"><div id="diagram"></div></body></html>',
+    );
+    await page.addScriptTag({
+      path: path.join(
+        path.dirname(require.resolve("mermaid/package.json")),
+        "dist/mermaid.min.js",
+      ),
+    });
+    await page.evaluate(
+      async ({ source, maxHeight }) => {
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "neutral",
+          fontFamily: "Arial",
+          fontSize: 24,
+          htmlLabels: false,
+          flowchart: { htmlLabels: false, useMaxWidth: false },
+          maxTextSize: 16384,
+          maxEdges: 200,
+          suppressErrorRendering: true,
+        });
+        const result = await mermaid.render("boox-diagram", source);
+        document.getElementById("diagram").innerHTML = result.svg;
+        const svg = document.querySelector("#diagram > svg");
+        if (!svg) throw new Error("Mermaid did not produce a diagram");
+        svg.style.maxWidth = "none";
+        const box = svg.viewBox.baseVal;
+        if (!box.width || !box.height || box.height / box.width > 15)
+          throw new Error("Diagram dimensions unsupported");
+        const targetWidth = Math.min(
+          window.innerWidth,
+          Math.max(box.width, 600),
+        );
+        const targetHeight = (targetWidth * box.height) / box.width;
+        const scale = Math.min(1, maxHeight / targetHeight);
+        svg.setAttribute("width", String(targetWidth * scale));
+        svg.setAttribute("height", String(targetHeight * scale));
+      },
+      { source, maxHeight },
+    );
+    const diagram = await page.$("#diagram > svg");
+    return Buffer.from(await diagram.screenshot({ type: "png" }));
+  } finally {
+    clearTimeout(timer);
+    await browser.close();
+  }
+}
+
 /** Internal layout is exported for tests of text preservation and source mapping. */
 export async function layoutMarkdown(
   source,
-  { width = 1404, height = 1872, deadline = Date.now() + 40000 } = {},
+  {
+    width = 1404,
+    height = 1872,
+    deadline = Date.now() + 40000,
+    sourceDirectory,
+  } = {},
 ) {
   const geometry = dimensions(width, height);
   const { font, margin, contentWidth } = geometry;
@@ -238,6 +410,32 @@ export async function layoutMarkdown(
         code: options.code,
       });
   };
+  let figurePixels = 0;
+  const addFigure = async (input, range, label) => {
+    const { data, info } = await sharp(input)
+      .resize({
+        width: Math.floor(contentWidth),
+        height: height - geometry.top - geometry.bottom,
+        fit: "inside",
+      })
+      .flatten({ background: "white" })
+      .png()
+      .toBuffer({ resolveWithObject: true });
+    figurePixels += info.width * info.height;
+    if (figurePixels > 32_000_000)
+      throw new Error(
+        "Document figure budget exceeded; split the source document",
+      );
+    rows.push({
+      start: range[0] + 1,
+      end: Math.max(range[0] + 1, range[1]),
+      height: info.height,
+      cells: [],
+      text: label,
+      figure: data,
+      figureWidth: info.width,
+    });
+  };
   const gap = (amount = Math.ceil(font * 0.55)) =>
     rows.push({ height: amount, cells: [], text: "", gap: true });
   let quote = 0,
@@ -303,21 +501,83 @@ export async function layoutMarkdown(
         prefix = "";
       }
       if (heading) runs = runs.map((run) => ({ ...run, bold: true }));
-      await addText(runs, token.map ?? [0, 1], {
-        size: heading
-          ? Math.round(font * ({ 1: 1.65, 2: 1.4, 3: 1.2 }[heading] ?? 1.08))
-          : font,
-        indent: Math.min(
-          contentWidth / 3,
-          Math.max(0, lists.length - 1) * font + quote * font,
-        ),
-        quote: quote > 0,
-      });
+      const range = token.map ?? [0, 1];
+      const segments = [];
+      let textRuns = [];
+      for (const run of runs) {
+        if (run.imageSource !== undefined) {
+          if (textRuns.length) segments.push({ runs: textRuns });
+          segments.push({ image: run });
+          textRuns = [];
+        } else textRuns.push(run);
+      }
+      if (textRuns.length) segments.push({ runs: textRuns });
+      for (const segment of segments) {
+        if (segment.image) {
+          try {
+            await addFigure(
+              await localImage(segment.image.imageSource, sourceDirectory),
+              range,
+              segment.image.imageAlt,
+            );
+          } catch (error) {
+            await addText(
+              [
+                {
+                  text: `[Image not rendered: ${segment.image.imageAlt || "no alt text"} (${segment.image.imageSource}) — ${error.code ? "file unavailable" : error.message}]`,
+                  italic: true,
+                },
+              ],
+              range,
+            );
+          }
+          continue;
+        }
+        await addText(segment.runs, range, {
+          size: heading
+            ? Math.round(font * ({ 1: 1.65, 2: 1.4, 3: 1.2 }[heading] ?? 1.08))
+            : font,
+          indent: Math.min(
+            contentWidth / 3,
+            Math.max(0, lists.length - 1) * font + quote * font,
+          ),
+          quote: quote > 0,
+        });
+      }
       continue;
     }
     if (token.type === "fence" || token.type === "code_block") {
       gap();
       const range = token.map ?? [0, 1];
+      if (
+        token.type === "fence" &&
+        token.info.trim().toLowerCase() === "mermaid"
+      ) {
+        try {
+          await addFigure(
+            await mermaidImage(
+              token.content,
+              contentWidth,
+              height - geometry.top - geometry.bottom,
+              deadline,
+            ),
+            range,
+            "Mermaid diagram",
+          );
+          gap();
+          continue;
+        } catch (error) {
+          await addText(
+            [
+              {
+                text: `[Mermaid not rendered: ${String(error.message).slice(0, 240)}]`,
+                italic: true,
+              },
+            ],
+            range,
+          );
+        }
+      }
       if (token.info)
         await addText([{ text: `Code · ${token.info}`, bold: true }], range, {
           size: Math.round(font * 0.8),
@@ -505,6 +765,12 @@ async function rasterizePage(page, geometry, index, count, filename, deadline) {
       throw new Error(
         "Markdown render exceeded 40 seconds; split the source document",
       );
+    if (row.figure)
+      overlays.push({
+        input: row.figure,
+        left: margin,
+        top: Math.round(row.y),
+      });
     if (row.code || row.header)
       decorations.push(
         `<rect x="${margin}" y="${row.y}" width="${contentWidth}" height="${row.height}" fill="#eeeeee"/>`,
@@ -538,7 +804,7 @@ async function rasterizePage(page, geometry, index, count, filename, deadline) {
     [{ text: label }],
     Math.max(14, Math.round(font * 0.63)),
     margin,
-    height - Math.max(24, Math.round(32 * width / 1404)),
+    height - Math.max(24, Math.round((32 * width) / 1404)),
   );
   const background = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="white"/>${decorations.join("")}</svg>`,
@@ -582,7 +848,12 @@ export async function renderMarkdownFile(
     throw new Error("Markdown source changed: SHA-256 mismatch");
   const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   const deadline = Date.now() + 40000;
-  const layout = await layoutMarkdown(source, { width, height, deadline });
+  const layout = await layoutMarkdown(source, {
+    width,
+    height,
+    deadline,
+    sourceDirectory: path.dirname(await realpath(absolutePath)),
+  });
   const pages = [];
   for (const [index, page] of layout.pages.entries()) {
     if (Date.now() > deadline)

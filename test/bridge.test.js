@@ -78,7 +78,7 @@ test("authenticated lifecycle, duplicate and stale submission, persistence", asy
   const created = await f.api("/api/reviews", f.page);
   assert.equal(created.status, 201);
   const id = created.body.id;
-  assert.equal((await f.api("/api/reviews", f.page)).status, 409);
+
   assert.equal(
     (await f.api(`/api/reviews/${id}/feedback`)).body.status,
     "pending",
@@ -160,7 +160,7 @@ test("MCP returns bounded pending result then annotated image and ink", async (t
   await Promise.all([server.connect(a), client.connect(b)]);
   t.after(() => Promise.all([client.close(), server.close()]));
   const tools = await client.listTools();
-  assert.equal(tools.tools.length, 4);
+  assert.equal(tools.tools.length, 6);
   const present = await client.callTool({
     name: "boox_present",
     arguments: {
@@ -548,4 +548,52 @@ test("sent history persists, expires after 90 days, and never removes pending dr
   assert.equal((await f.store.history(timestamp + 90 * 86400000 + 1)).reviews.length, 0);
   assert.equal(f.store.get(pending.id).status, "pending");
   assert.equal(JSON.parse(await readFile(path.join(f.directory, "state.json"))).reviews[sent.id], undefined);
+});
+
+
+test("document queue preserves active review, advances FIFO, and survives restart", async (t) => {
+  const f = await fixture(t);
+  const a = (await f.api("/api/reviews", f.page)).body;
+  const b = (await f.api("/api/reviews", {...f.page,title:"Second"})).body;
+  const c = (await f.api("/api/reviews", {...f.page,title:"Third"})).body;
+  assert.equal(b.queuePosition, 2);
+  assert.equal(f.store.current().id, a.id);
+  assert.deepEqual((await f.api("/api/queue")).body.reviews.map(r=>r.id),[a.id,b.id,c.id]);
+  assert.equal((await f.api(`/api/reviews/${b.id}/feedback`, f.feedback)).status,409);
+  await f.api(`/api/reviews/${a.id}/feedback`,f.feedback);
+  assert.equal(f.store.current().id,b.id);
+  await f.api(`/api/reviews/${a.id}/feedback`,f.feedback);
+  assert.equal(f.store.current().id,b.id);
+  const restored = await createBridge({directory:f.directory});
+  restored.server.emit("close");
+  assert.equal(restored.store.current().id,b.id);
+  await f.api(`/api/reviews/${b.id}/cancel`,{});
+  assert.equal(f.store.current().id,c.id);
+  assert.equal((await f.api(`/api/reviews/${a.id}/feedback`)).body.status,"submitted");
+});
+
+
+test("expanded canvas keeps signed source coordinates and rejects clipped or excessive bounds", async (t) => {
+ const f=await fixture(t);const r=(await f.api("/api/reviews",f.page)).body;
+ const image=(await sharp({create:{width:300,height:450,channels:3,background:"white"}}).png().toBuffer()).toString("base64");
+ const feedback={...f.feedback,compositeBase64:image,canvasBounds:{x:-50,y:-50,width:300,height:450},strokes:[{width:3,points:[{x:-20,y:-25,pressure:.5}]}]};
+ assert.equal((await f.api(`/api/reviews/${r.id}/feedback`,{...feedback,canvasBounds:{x:1,y:-50,width:300,height:450}})).status,400);
+ assert.equal((await f.api(`/api/reviews/${r.id}/feedback`,{...feedback,canvasBounds:{x:-600,y:-50,width:300,height:450}})).status,400);
+ assert.equal((await f.api(`/api/reviews/${r.id}/feedback`,feedback)).status,200);
+ const stored=(await f.api(`/api/reviews/${r.id}/feedback`)).body;
+ assert.deepEqual(stored.canvasBounds,feedback.canvasBounds);
+ assert.equal(stored.strokes[0].points[0].x,-20);
+});
+
+
+test("unread feedback survives waiting and requires exact submission acknowledgement", async (t) => {
+ const f=await fixture(t); const r=(await f.api("/api/reviews",f.page)).body;
+ await f.api(`/api/reviews/${r.id}/feedback`,f.feedback);
+ assert.equal((await f.api("/api/feedback-inbox")).body.reviews[0].id,r.id);
+ await f.api(`/api/reviews/${r.id}/feedback`);
+ assert.equal((await f.api("/api/feedback-inbox")).body.reviews.length,1);
+ assert.equal((await f.api(`/api/reviews/${r.id}/acknowledge`,{submissionId:"wrong"})).status,409);
+ assert.equal((await f.api(`/api/reviews/${r.id}/acknowledge`,{submissionId:f.feedback.submissionId})).status,200);
+ assert.equal((await f.api("/api/feedback-inbox")).body.reviews.length,0);
+ assert.equal((await f.api(`/api/reviews/${r.id}/feedback`)).body.status,"submitted");
 });

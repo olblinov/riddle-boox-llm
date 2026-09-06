@@ -102,7 +102,7 @@ test("long GFM tables preserve cells across page breaks and wide column bands", 
   assert.ok(body.every((row) => row.start === 3 && row.end === 3));
 });
 
-test("HTML, images and links remain inert visible text; hash mismatch and limits fail explicitly", async (t) => {
+test("HTML, remote images and links remain inert visible text; hash mismatch and limits fail explicitly", async (t) => {
   const markdown =
     '<script>fetch("https://not-called.invalid")</script>\n\n![private](http://127.0.0.1/secret)\n\n[link](https://not-called.invalid)\n';
   const layout = await layoutMarkdown(markdown);
@@ -154,5 +154,106 @@ test("code indentation remains visible in raster pixels", async (t) => {
   assert.ok(
     firstInk(codeRows[1]) - firstInk(codeRows[0]) >= 20,
     "two code spaces must produce visible indentation",
+  );
+});
+
+test("local Markdown image renders pixels with source mapping; outside and active content stays blocked", async (t) => {
+  const file = await sourceFile(t, "# Images\n\n![red square](picture.png)\n");
+  const image = await sharp({
+    create: { width: 80, height: 60, channels: 3, background: "#cc0000" },
+  })
+    .png()
+    .toBuffer();
+  await writeFile(path.join(path.dirname(file), "picture.png"), image);
+  const layout = await layoutMarkdown(await readFile(file, "utf8"), {
+    sourceDirectory: path.dirname(file),
+  });
+  const figure = allRows(layout).find((row) => row.figure);
+  assert.ok(figure);
+  assert.equal(figure.start, 3);
+  assert.equal(figure.end, 3);
+  const rendered = await renderMarkdownFile(file);
+  const pixel = await sharp(
+    Buffer.from(rendered.pages[0].imageBase64, "base64"),
+  )
+    .extract({
+      left: layout.geometry.margin + 10,
+      top: Math.round(figure.y) + 10,
+      width: 1,
+      height: 1,
+    })
+    .removeAlpha()
+    .raw()
+    .toBuffer();
+  assert.ok(pixel[0] > 150 && pixel[1] < 30 && pixel[2] < 30);
+  const { symlink } = await import("node:fs/promises");
+  await symlink(os.tmpdir(), path.join(path.dirname(file), "escape"));
+  await writeFile(
+    path.join(path.dirname(file), "active.svg"),
+    '<svg xmlns="http://www.w3.org/2000/svg"><image href="file:///etc/passwd"/></svg>',
+  );
+  const blocked = await layoutMarkdown(
+    "![up](../secret.png)\n\n![absolute](/etc/passwd)\n\n![remote](https://example.invalid/private.png)\n\n![symlink](escape)\n\n![svg](active.svg)",
+    { sourceDirectory: path.dirname(file) },
+  );
+  assert.equal(allRows(blocked).filter((row) => row.figure).length, 0);
+  assert.equal(
+    allRows(blocked)
+      .map((row) => row.text)
+      .join("")
+      .match(/Image not rendered/g).length,
+    5,
+  );
+});
+
+test("Mermaid renders real diagram pixels instead of source code and preserves fence lines", async (t) => {
+  const { access } = await import("node:fs/promises");
+  const candidates = [
+    process.env.BOOX_CHROME_PATH,
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome",
+  ].filter(Boolean);
+  let available = false;
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      available = true;
+      break;
+    } catch {}
+  }
+  if (!available) {
+    t.skip("Installed Chrome/Chromium required for Mermaid raster test");
+    return;
+  }
+  const markdown =
+    "# Diagram\n\n```mermaid\nflowchart LR\n  A[Tablet] --> B[Codex]\n```\n";
+  const layout = await layoutMarkdown(markdown);
+  const figure = allRows(layout).find((row) => row.figure);
+  assert.ok(
+    figure,
+    allRows(layout)
+      .map((row) => row.text)
+      .join("\n"),
+  );
+  assert.equal(figure.start, 3);
+  assert.equal(figure.end, 6);
+  assert.equal(allRows(layout).filter((row) => row.code).length, 0);
+  const statistics = await sharp(figure.figure).stats();
+  assert.ok(statistics.channels[0].min < 50);
+  assert.ok(statistics.channels[0].max > 200);
+});
+
+test("Mermaid cannot override strict renderer configuration", async () => {
+  const layout = await layoutMarkdown(
+    '```mermaid\n%%{init: {securityLevel: "loose"}}%%\nflowchart LR\n A-->B\n```',
+  );
+  assert.equal(allRows(layout).filter((row) => row.figure).length, 0);
+  assert.match(
+    allRows(layout)
+      .map((row) => row.text)
+      .join(""),
+    /configuration directives are disabled/,
   );
 });

@@ -121,6 +121,32 @@ export class Store {
     if (pages) metadata.pages = pages.map(({ imageBase64, ...page }) => page);
     return metadata;
   }
+  feedbackInbox() {
+    return { reviews: Object.values(this.state.reviews)
+      .filter(r => r.status === "submitted" && !r.feedbackReadAt)
+      .map(r => ({id:r.id,title:r.title,submissionId:r.feedback.submissionId,
+        submittedAt:r.submittedAt,pageCount:r.pages?.length ?? 1,source:r.source,origin:r.origin})) };
+  }
+  acknowledgeFeedback(id, submissionId) {
+    return this.mutate(() => {
+      const r = this.get(id);
+      if (r.status !== "submitted" || r.feedback?.submissionId !== submissionId)
+        fail(409, "Submission does not match review");
+      r.feedbackReadAt ??= new Date().toISOString();
+      return {ok:true,reviewId:id,submissionId,feedbackReadAt:r.feedbackReadAt};
+    });
+  }
+  pendingQueue() {
+    return Object.values(this.state.reviews).filter(r => r.status === "pending");
+  }
+  advanceQueue() {
+    const next = this.pendingQueue()[0];
+    if (next) this.state.current = next.id;
+  }
+  reviewQueue() {
+    return { activeReviewId: this.current()?.status === "pending" ? this.state.current : null,
+      reviews: this.pendingQueue().map((r, i) => ({...this.metadata(r), queuePosition: i + 1})) };
+  }
   current() {
     const review = this.state.reviews[this.state.current];
     return review ? this.metadata(review) : null;
@@ -170,7 +196,11 @@ export class Store {
     return { imageBase64, width, height, ...(source ? { source } : {}) };
   }
   async create(body) {
-    const { title, pages } = body;
+    const { title, pages, origin } = body;
+    if (origin !== undefined && (!origin || typeof origin !== "object" ||
+      typeof origin.threadId !== "string" || !/^[a-f0-9-]{36}$/.test(origin.threadId) ||
+      typeof origin.workspace !== "string" || !path.isAbsolute(origin.workspace) || origin.workspace.length > 4096))
+      fail(400, "Invalid review origin");
     if (typeof title !== "string" || !title.trim() || title.length > 200)
       fail(400, "Title required, maximum 200 characters");
     let validated;
@@ -183,8 +213,8 @@ export class Store {
       for (const page of pages) validated.push(await this.validatePage(page));
     } else validated = [await this.validatePage(body)];
     return this.mutate(() => {
-      if (this.current()?.status === "pending")
-        fail(409, "A review is already pending");
+      if (this.pendingQueue().length >= 100)
+        fail(409, "Review queue is full (100 documents)");
       const id = randomUUID();
       const first = validated[0];
       const review = {
@@ -194,6 +224,7 @@ export class Store {
         height: first.height,
         status: "pending",
         createdAt: new Date().toISOString(),
+        ...(origin ? {origin: {threadId:origin.threadId,workspace:origin.workspace}} : {}),
         imageUrl: `/api/reviews/${id}/image`,
         ...(first.source ? { source: first.source } : {}),
         ...(pages !== undefined
@@ -208,8 +239,8 @@ export class Store {
           : { imageBase64: first.imageBase64 }),
       };
       this.state.reviews[id] = review;
-      this.state.current = id;
-      return this.metadata(review);
+      this.advanceQueue();
+      return { ...this.metadata(review), queuePosition: this.pendingQueue().findIndex(r => r.id === id) + 1 };
     });
   }
   image(id, pageIndex = 1) {
@@ -227,7 +258,15 @@ export class Store {
   async validateFeedbackPage(page, review) {
     if (!page || typeof page !== "object" || Array.isArray(page))
       fail(400, "Invalid feedback page");
-    const { compositeBase64, strokes, note = "" } = page;
+    const { compositeBase64, strokes, note = "", canvasBounds } = page;
+    const bounds = canvasBounds ?? {x: 0, y: 0, width: review.width, height: review.height};
+    if (canvasBounds !== undefined && (!canvasBounds || typeof canvasBounds !== "object" || Array.isArray(canvasBounds)))
+      fail(400, "Invalid canvas bounds");
+    const {x, y, width, height} = bounds;
+    if (![x,y,width,height].every(Number.isInteger) || x > 0 || y > 0 || x < -512 || y < -512 ||
+        width < review.width - x || height < review.height - y || width > 4096 || height > 4096 ||
+        width * height > 16000000 || x + width > review.width + 512 || y + height > review.height + 512)
+      fail(400, "Invalid canvas bounds");
     if (typeof note !== "string" || note.length > 10000)
       fail(400, "Invalid note");
     if (!Array.isArray(strokes) || strokes.length > 10000)
@@ -250,10 +289,10 @@ export class Store {
           !point ||
           !Number.isFinite(point.x) ||
           !Number.isFinite(point.y) ||
-          point.x < 0 ||
-          point.y < 0 ||
-          point.x > review.width ||
-          point.y > review.height ||
+          point.x < x ||
+          point.y < y ||
+          point.x > x + width ||
+          point.y > y + height ||
           !Number.isFinite(point.pressure) ||
           point.pressure < 0 ||
           point.pressure > 1
@@ -261,8 +300,8 @@ export class Store {
           fail(400, "Invalid stroke point");
       }
     }
-    await png(compositeBase64, review.width, review.height);
-    return { compositeBase64, strokes, note };
+    await png(compositeBase64, width, height);
+    return { compositeBase64, strokes, note, ...(canvasBounds ? {canvasBounds: {x,y,width,height}} : {}) };
   }
   async submit(id, body) {
     const review = this.get(id);
@@ -314,6 +353,7 @@ export class Store {
       current.feedback = feedback;
       current.status = "submitted";
       current.submittedAt = new Date().toISOString();
+      this.advanceQueue();
       return { ok: true, reviewId: id, status: "submitted", submittedAt: current.submittedAt ??= new Date().toISOString() };
     });
   }
@@ -341,6 +381,7 @@ export class Store {
       if (review.status === "submitted")
         fail(409, "Submitted review cannot be cancelled");
       review.status = "cancelled";
+      this.advanceQueue();
       return { ok: true, status: "cancelled" };
     });
   }

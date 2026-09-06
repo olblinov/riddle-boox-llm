@@ -61,3 +61,13 @@ No physical pen raw callback or optical latency measurement was captured in this
 Twenty-one automated tests pass, including 90-day expiry boundary, pending-draft protection and stable submission timestamps across identical retries. Android HistoryCache JVM tests cover offline multipage access, transactional writes, duplicate IDs, shared-instance concurrency, corruption detection/repair and confinement away from pending draft files. Independent review found no remaining blocker after moving history disk reads off the UI thread.
 
 Production APK version 0.5.0/code 5, SHA-256 `56ea65590d3e56e7677934a2187233e5e707ca32e8bd319c26505928a4c3602c`, installed on Note Air2 Plus. History listed five previous submissions. The user's four-page annotated guide opened and navigated from page one to page two. With USB bridge forwarding removed, reopening History and navigating the same document still passed. Forwarding restored afterward. Back returned to existing Page 1 / 1 draft; complete bridge state stayed equal to its pre-install copy. No review was sent or discarded during this test.
+
+## Handwritten feedback 0.6.0
+
+27 Node tests pass, including FIFO queue persistence/advance, exact unread acknowledgement, signed expanded-canvas validation, real local image rendering and headless-Chrome Mermaid. Android CanvasGestureTest, RawStrokeBufferTest and HistoryCacheTest pass. Independent source audit covered routing, canvas translation, Wi-Fi migration and swipe guards.
+
+Physical isolated app swiped from page 1/3 to 2/3 and showed current plus queued document. Screenshot confirmed visible bottom writing area. Synthetic signed strokes seeded in isolated drafts exported as three 2428 x 2896 composites with canvasBounds {-512,-512,2428,2896}; x=-100/y=-50 remained unchanged in all pages. An initial test fixture incorrectly seeded negative ink on an unexpanded page and correctly received HTTP 400; corrected fixture passed. Automatic queue advance opened the second document. Physical handwriting in expanded margins remains unmeasured.
+
+Production 0.6.0/code 6 APK SHA-256 ee119e85e43e3d75a1a51f1bb53a98e4a77a6128a14320e0001886d816225045 installed preserving exact production state. Bonjour discovered http://192.168.2.117:4317; authenticated migration succeeded with pending review preserved. USB forwarding was removed and History remained available over the Wi-Fi setup.
+
+Automatic idle-task wake is unavailable in this desktop's supported connection; docs/feedback-continuation.md records evidence. No private IPC or fabricated user-message workaround was used.

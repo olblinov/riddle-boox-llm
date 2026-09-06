@@ -48,7 +48,7 @@ bash android/build.sh
 
 Native app build instructions and device limitations: [docs/android.md](docs/android.md). Browser behavior: [docs/browser.md](docs/browser.md). Concept and API contract: [docs/design.md](docs/design.md). Verification evidence: [docs/validation.md](docs/validation.md).
 
-Version 0.4.0 uses BOOX native pen rendering with an approved app-local compatibility exception and Canvas fallback. Native geometry initializes on Note Air2 Plus; actual pen latency, raw callbacks and refresh quality still need physical handwriting validation. No reMarkable takeover code is needed.
+Version 0.4.0 uses BOOX native pen rendering with an approved app-local compatibility exception and Canvas fallback. Four-page handwritten feedback was received on Note Air2 Plus and the user reported writing "works great"; optical latency is not measured. No reMarkable takeover code is needed.
 
 ## Remove local installation
 
@@ -62,3 +62,5 @@ Then remove `~/Library/LaunchAgents/com.olblinov.boox-review.plist` and the `~/.
 Source: private repository `olblinov/riddle-boox-llm`.
 
 Sent-document history: BOOX History reopens annotated pages offline after caching. Default retention is 90 days; pending drafts do not expire. See [history documentation](docs/history.md).
+
+Version 0.6 adds FIFO document queue, expanded annotation export, Wi-Fi discovery, and rendered local Markdown images/Mermaid. Unread feedback receipts survive wait timeouts; automatic idle Codex wake remains unavailable in the current desktop connection.

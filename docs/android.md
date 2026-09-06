@@ -57,3 +57,11 @@ Eraser mode suppresses only the SDK's native rendering, retaining raw input. Who
 History opens a separate read-only Activity and preserves the active review. It lists sent documents and displays annotated pages with Previous/Next, pan and zoom. Downloaded documents are cached offline for 90 days after submission. Successful Send archives its annotated pages before clearing active draft files; a cache failure preserves the exact submission for retry. History refresh imports earlier submissions from the Mac.
 
 HistoryCache commits each document through a staged directory, uses a shared process lock, validates image hashes and repairs incomplete entries. Retention only touches its history directory. Disk reads and decoding run off the UI thread; stale results are discarded. HistoryCacheTest exercises expiry, offline access, concurrent instances and corruption repair. Physical history/offline checks are recorded in validation.md.
+
+## Handwritten feedback 0.6.0
+
+Page view fits the original document plus 256 pixels of bottom writing space. Width restores text detail. Zooming out reveals up to 512 pixels of extra writable area per edge, bounded to 4096 pixels per dimension and 16M pixels total. CanvasBounds is persisted with each page; exported composites translate the unchanged source origin and include signed-coordinate ink. Existing frozen retry payloads remain unchanged.
+
+Single-finger horizontal swipes at Page-fit move between pages. Pinch, pen and palm input cancel swipe eligibility; zoomed horizontal gestures pan. Queue displays waiting documents without replacing drafts. Wi-Fi pairing discovers _boox-review._tcp, keeps the token and validates health plus the pending review before switching endpoint. Manual URL remains available.
+
+CanvasGestureTest covers bounds/gesture decisions. Physical tablet swipe and queue checks passed; synthetic signed draft strokes exported across three pages and advanced queue. This checks export/persistence, not new physical pen capture outside page. The production device discovered and connected to Mac Wi-Fi with USB forwarding removed.

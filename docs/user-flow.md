@@ -1,6 +1,6 @@
 # Review with your pen
 
-Preferred setup: BOOX and Mac on the same trusted Wi-Fi network. Keep BOOX Review open. The current pairing may still use USB until its bridge URL is changed. Continue using this Codex conversation; BOOX becomes its reading and handwriting surface.
+Preferred setup: BOOX and Mac on the same trusted Wi-Fi network. Keep BOOX Review open. Open Pair and discover the Mac on Wi-Fi, or enter its LAN address. The existing token verifies the connection; USB remains an alternative. Continue using this Codex conversation; BOOX becomes its reading and handwriting surface.
 
 ## 1. Ask for a tablet review
 
@@ -10,11 +10,11 @@ Codex prepares readable pages. Text stays large. Blank margins on all four sides
 
 ## 2. Read and mark the pages
 
-Use Previous and Next to browse. Write beside relevant text, circle a value, cross out a sentence, or sketch an alternative. Use arrows to connect notes to their targets.
+Use Previous and Next, or swipe left/right with one finger in Page view, to browse. Write beside relevant text, circle a value, cross out a sentence, or sketch an alternative. Use arrows to connect notes to their targets.
 
 Example: circle "30 days" and write "90 days" beside it. For a diagram, cross out a connection and draw the replacement.
 
-Pen draws. Fingers pan and zoom. Width restores full-width view. Undo removes your latest stroke. Each page keeps its own ink when you move between pages.
+Pen draws. Page view shows the page and bottom writing space. Fingers pan and zoom; when zoomed in, horizontal movement pans. Width restores full-width detail. Zoom out to add notes beyond the original page edges within the surrounding writing area. These notes are included when you send. Undo removes your latest stroke. Each page keeps its own ink when you move between pages.
 
 ## 3. Send the whole document
 
@@ -26,7 +26,7 @@ You can return to earlier pages before sending. Send includes every page and its
 
 After Send, the Mac stores your submitted pages. While Codex is actively waiting, those pages return to this task. A wait call lasts at most 45 seconds; its timeout does not expire or delete your document. If Codex has stopped waiting, say "Collect my BOOX feedback" in this conversation. Codex reads your ink in context and applies clear requested changes to the original Markdown or diagram source.
 
-Unclear handwriting gets a focused clarification. A revised document can come back for another review. Drawing on BOOX alone does not edit the source file; Codex makes that edit after Send.
+Unclear handwriting gets a focused clarification. A revised document can come back for another review. New documents join a queue instead of replacing your current work. Queue shows waiting documents; sending or discarding the current review opens the next one. Drawing on BOOX alone does not edit the source file; Codex makes that edit after Send.
 
 # What happens underneath
 
@@ -34,13 +34,13 @@ Unclear handwriting gets a focused clarification. A revised document can come ba
 
 The Markdown file stays on your Mac. The local renderer turns it into numbered PNG pages at the tablet's resolution, with 96-pixel margins. It preserves a source snapshot, checksum and line ranges so feedback can be matched to the exact version you saw.
 
-A local bridge stores one pending review. BOOX fetches those pages through the paired connection. USB forwarding connects tablet localhost to the Mac; trusted Wi-Fi is another option.
+A local bridge stores a persistent queue of up to 100 pending reviews. BOOX fetches those pages through the paired connection. Wi-Fi discovery finds the Mac on the same network. USB forwarding remains an alternative.
 
 ## Capturing your pen
 
 The Android app caches downloaded page images and draft annotations locally. Once pages are downloaded, you can review them offline. If either device is offline when you send, the app keeps the exact submission for retry when the connection returns. After the Mac confirms receipt, the app clears the active draft; the Mac retains the source pages and submitted feedback. On supported BOOX firmware, the vendor pen SDK draws live ink and reports stroke points. Canvas is the fallback when native initialization fails.
 
-The app stores positions and pressure relative to each source page. Navigation changes your view without moving saved ink. Version 0.4 delivered all four handwritten pages in this review. Your feedback on pen response was "works great"; optical latency was not measured.
+The app stores positions and pressure relative to each source page. Outside-page notes can have negative coordinates. Expanded image bounds tell Codex exactly where the original page sits, so these notes stay aligned. Navigation changes your view without moving saved ink. Version 0.4 delivered all four handwritten pages in this review. Your feedback on pen response was "works great"; optical latency was not measured.
 
 ## Returning feedback
 
@@ -62,6 +62,6 @@ Sent history is kept for 90 days by default. Unsent drafts are excluded from exp
 
 ## Current limits
 
-One review can be pending at a time. Finish or discard it before starting another. An oversized document must be split into review batches.
+One review is active at a time; up to 100 documents can wait in the queue. Finish or discard the active document to advance. An oversized document must be split into review batches.
 
-Markdown images are labelled placeholders and Mermaid stays code in the current renderer. For a visible diagram, request a rendered diagram page. The original diagram source stays with the task for later changes.
+Local Markdown raster images and Mermaid diagrams render as visible figures. Local images must stay inside the document folder. Remote images, SVG, and table-cell images remain labelled placeholders. Mermaid needs Chrome installed on the Mac. The original diagram source stays with the task for later changes.
