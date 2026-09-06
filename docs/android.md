@@ -12,12 +12,14 @@ Write with stylus. Fingers pan, pinch zoom. Fit restores whole-page view. Eraser
 
 Set `JAVA_HOME` to JDK 17 and `ANDROID_SDK_ROOT` to an SDK containing `platforms;android-35` and `build-tools;35.0.0`. Run `bash android/build.sh`. It also discovers project-local tools under `work/android-tools`. Output is a development-signed APK, not a Play Store release. Build uses aapt2, javac, d8, zipalign and apksigner directly, avoiding Gradle dependency downloads.
 
-## Device checks pending
+## Device verification
 
-Install on physical BOOX; verify pairing, pen pressure/eraser, palm rejection, pan/zoom, Send round trip, draft restart recovery, failed submission recovery, and refresh ghosting. Standard Android rendering may lag BOOX Notes. USB debugging must be enabled by device owner before adb installation.
+Basic physical pairing, Markdown rendering, pen capture and Send round trip passed. Further checks remain for eraser, palm rejection, pan/zoom, draft restart recovery, failed submission recovery, and refresh ghosting. Standard Android rendering may lag BOOX Notes. USB debugging must be enabled by device owner before adb installation.
 
 ## Validation completed
 
-Development APK built successfully using JDK 17, Android platform 35 and build-tools 35.0.0. `apksigner verify --verbose` passed with v3 signing; `aapt2 dump badging` confirmed package `com.booxreview`, minimum SDK 28, target SDK 30 and launchable activity. `adb devices` found no connected device, so installation and runtime/pen checks remain pending.
+Development APK built successfully using JDK 17, Android platform 35 and build-tools 35.0.0. `apksigner verify --verbose` passed with v3 signing; `aapt2 dump badging` confirmed package `com.booxreview`, minimum SDK 28, target SDK 30 and launchable activity. Initial build had no connected device; subsequent physical installation and basic pen checks passed as recorded below.
 
 Review fixes: stylus input tracks pointer IDs independently of pointer index. Palm/finger gestures are suppressed throughout a pen stroke and until remaining contacts lift. Pointer-up and cancellation end stroke state; Fit/Undo/Clear/Send cannot alter an active stroke. Failed discard preserves an uncertain submission's lock. Activity destruction cancels handlers, shuts down its worker, disconnects active HTTP, and ignores late UI callbacks. Java source formatted with google-java-format. Rebuilt APK passed signature verification after these changes; physical multi-pointer behavior remains untested.
+
+Physical Note Air2 Plus install, launch, USB pairing, Markdown display and real pen submission passed on 2026-09-06. BOOX froze the initial install; `adb shell pm enable com.booxreview` resolved launch. Enable USB Debug Mode through Apps > top-right menu > App Management. `adb reverse tcp:4317 tcp:4317` connects tablet localhost to Mac; repeat forwarding after USB reconnection.

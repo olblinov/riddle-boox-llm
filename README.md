@@ -15,7 +15,7 @@ node scripts/install.mjs
 
 On macOS the installer registers the `boox` MCP server, links the skill into `~/.agents/skills`, and starts a login service listening on port 4317. It requires access to your Codex configuration and LaunchAgents directory. Restart/reload Codex if the tools do not appear. The repository also exposes the skill through `.agents/skills`.
 
-Download APK from [private releases](https://github.com/olblinov/riddle-boox-llm/releases), or use locally built `outputs/boox-review-debug.apk`. Install it on BOOX. Pair using this Mac's LAN address, port 4317, and the token in `.runtime/token`. Run `node scripts/pairing.mjs` to create a local `outputs/pairing.html` with the address and token. Keep that file private. Both devices need the same trusted network. Browser fallback uses the same bridge URL and token. HTTP LAN traffic is unencrypted; keep it on a trusted network. For USB-only access use `adb reverse tcp:4317 tcp:4317` and `http://127.0.0.1:4317` on Android.
+Download APK from [private releases](https://github.com/olblinov/riddle-boox-llm/releases), or use locally built `outputs/boox-review-debug.apk`. Install it on BOOX. If BOOX freezes the new app, run `adb shell pm enable com.booxreview` before launch. Pair using this Mac's LAN address, port 4317, and the token in `.runtime/token`. Run `node scripts/pairing.mjs` to create a local `outputs/pairing.html` with the address and token. Keep that file private. Both devices need the same trusted network. Browser fallback uses the same bridge URL and token. HTTP LAN traffic is unencrypted; keep it on a trusted network. For USB-only access use `adb reverse tcp:4317 tcp:4317` and `http://127.0.0.1:4317` on Android.
 
 Start a Codex task with:
 

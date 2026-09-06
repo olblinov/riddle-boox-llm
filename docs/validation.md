@@ -1,6 +1,6 @@
 # Verification
 
-Verified 2026-09-06. Software loop works. Physical BOOX installation and stylus/refresh acceptance remain pending because no device is connected.
+Verified 2026-09-06. Software loop and physical Note Air2 Plus USB/pen round trip verified. Detailed latency, eraser and ghosting measurements remain unmeasured.
 
 ## Evidence
 
@@ -22,9 +22,13 @@ Combined suite: 12 tests passed; dependency audit reported zero vulnerabilities.
 - Live Codex desktop review of `work/markdown-acceptance.md` used actual `markdown_path` tool input, then received synthetic annotations solely through the image result. It verified source checksum and changed retention from 30 to 7 days in prose, table and YAML. Weekly restore tests and all other bytes stayed unchanged. Review `4cb8a9d4-82eb-499d-a9e8-88bf70f4cfa3`.
 - Markdown renderer never writes source. Codex adapts the file after interpreting submitted page feedback. Embedded images remain labelled placeholders; Mermaid stays fenced source. See renderer documentation for exact support.
 
-## Remaining hardware step
+## Physical BOOX acceptance
 
-Connect Note Air2 Plus by USB with USB debugging enabled and authorize this Mac, or install APK manually and pair over trusted LAN. Validate real pen pressure/eraser, palm rejection, pan/zoom, draft recovery, Send, latency, and ghosting. The implementation uses standard Android Canvas; BOOX vendor fast-ink support is not included.
+Note Air2 Plus detected over authorized USB debugging. APK installed, app unfrozen with `pm enable`, and USB `adb reverse tcp:4317 tcp:4317` paired successfully. Device screenshot verified rendered Markdown on physical display. First real submission contained eight strokes/1,334 points, with a circle around 30 days and handwritten “too much.” Clarification returned handwritten “90 days.” Codex updated prose, table, and YAML to 90 days and sent revised Markdown back to tablet. No AndroidRuntime crash observed.
+
+## Remaining device measurements
+
+Basic rendering, real pen capture, explicit Send, clarification, and source-edit round trip passed. Further tests can measure eraser, palm rejection, pan/zoom, restart recovery, latency, and ghosting. The implementation uses standard Android Canvas; BOOX vendor fast-ink support is not included.
 
 ## Sources
 

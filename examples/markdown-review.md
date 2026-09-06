@@ -1,6 +1,6 @@
 # Storage plan
 
-Keep backups for **30 days**. This draft needs review before implementation.
+Keep backups for **90 days**. This draft needs review before implementation.
 
 ## Decisions
 
@@ -10,14 +10,14 @@ Keep backups for **30 days**. This draft needs review before implementation.
 
 | Setting | Proposed value |
 | --- | --- |
-| Backup retention | 30 days |
+| Backup retention | 90 days |
 | Restore test | Weekly |
 
 ## Configuration
 
 ```yaml
 backup:
-  retentionDays: 30
+  retentionDays: 90
   restoreTest: weekly
 ```
 
