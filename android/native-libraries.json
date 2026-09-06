@@ -1,0 +1,26 @@
+{
+  "jni/arm64-v8a/libc++_shared.so": {
+    "artifact": "onyxsdk-pen-1.5.4.aar",
+    "sha256": "f4e1e97c1943e60311e47e8b024d78f5b3b7229b3ccc65feb33af83d6025a670"
+  },
+  "jni/arm64-v8a/libonyx_pen_touch_reader.so": {
+    "artifact": "onyxsdk-pen-1.5.4.aar",
+    "sha256": "35ec2d70062e01c92068c4a5814af4c3efd544ecd54d916b67274703ca8c53c1"
+  },
+  "jni/armeabi-v7a/libc++_shared.so": {
+    "artifact": "onyxsdk-pen-1.5.4.aar",
+    "sha256": "a95c07c255e481878b853385942c9179313123619652da3269d8edbd71158588"
+  },
+  "jni/armeabi-v7a/libonyx_pen_touch_reader.so": {
+    "artifact": "onyxsdk-pen-1.5.4.aar",
+    "sha256": "c157c340fdc53e1140a6f80b63f4dd9b839fedf1a251fc25b307451f5e9ddcda"
+  },
+  "jni/arm64-v8a/libneopen_jni.so": {
+    "artifact": "onyxsdk-pennative-1.0.4.aar",
+    "sha256": "a2c6910b7d3aa78e00505821113ead5876a11fe0f48f9abf004a19c5c53fc8c0"
+  },
+  "jni/armeabi-v7a/libneopen_jni.so": {
+    "artifact": "onyxsdk-pennative-1.0.4.aar",
+    "sha256": "5c50acedbbad2278c8dbdf05910baaf8d26fc8782c4169590d5e440db4398429"
+  }
+}

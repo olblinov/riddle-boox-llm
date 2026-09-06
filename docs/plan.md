@@ -18,3 +18,7 @@ Markdown extension complete: paginated rendering, source snapshots/checksums, fe
 ## Display and document update
 
 0.3.0 addresses actual-use feedback: native full-width view, larger Markdown text, narrow margins, and whole-document navigation with one submission. Renderer, bridge/MCP, native client, browser and skill updated together. Legacy drafts remain compatible. Twenty automated tests and real browser multipage acceptance pass; connected BOOX acceptance is recorded in validation.md.
+
+## Native pen latency follow-up
+
+Native SDK candidate and raw capture regression prepared. Actual Android 11 blocks required private vendor APIs; automatic approval review rejected compatibility exception. No exception deployed, production stays0.3.0. Exact status and proposed scope: [native-ink-status.md](native-ink-status.md).

@@ -44,3 +44,7 @@ Default viewing now uses full width with vertical panning for remaining content.
 ## Document API extension
 
 See [bridge.md](bridge.md) for the implemented document contract. A document adds a `pages` array to creation and metadata; page images use `image?page=N`. Feedback carries an ordered `pages` array under one `submissionId`. Existing single-page persisted reviews and requests remain supported. The 24 MiB request bound applies to the whole document; oversized documents fail rather than silently truncating or submitting only part.
+
+## Native pen rendering
+
+The unreleased 0.4.0 candidate targets reported pen-down delay. Android 11 compatibility remains blocked on explicit approval; see [native-ink-status.md](native-ink-status.md). Standard Android Canvas redraws do not use BOOX’s direct ink path. Integrate the official TouchHelper SDK for transient panel ink, while finalized points remain in the existing per-page model for persistence and export. Native ink must pause for dialogs, focus loss, locked submissions, page changes and coordinate transforms. Unsupported firmware retains Canvas fallback. Validate activation and lifecycle on Note Air2 Plus; subjective latency requires real pen use because screenshots do not measure panel response.

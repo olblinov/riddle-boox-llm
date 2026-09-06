@@ -1,0 +1,122 @@
+[
+  {
+    "file": "annotations-13.0.jar",
+    "url": "https://repo.maven.apache.org/maven2/org/jetbrains/annotations/13.0/annotations-13.0.jar",
+    "sha256": "ace2a10dc8e2d5fd34925ecac03e4988b2c0f851650c94b8cef49ba1bd111478",
+    "licenses": [
+      "The Apache Software License, Version 2.0"
+    ]
+  },
+  {
+    "file": "eventbus-3.0.0.jar",
+    "url": "https://repo.maven.apache.org/maven2/org/greenrobot/eventbus/3.0.0/eventbus-3.0.0.jar",
+    "sha256": "180d4212467df06f2fbc9c8d8a2984533ac79c87769ad883bc421612f0b4e17c",
+    "licenses": [
+      "The Apache Software License, Version 2.0"
+    ]
+  },
+  {
+    "file": "gson-2.8.5.jar",
+    "url": "https://repo.maven.apache.org/maven2/com/google/code/gson/gson/2.8.5/gson-2.8.5.jar",
+    "sha256": "233a0149fc365c9f6edbd683cfe266b19bdc773be98eabdaf6b3c924b48e7d81",
+    "licenses": []
+  },
+  {
+    "file": "kotlin-stdlib-1.6.10.jar",
+    "url": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.6.10/kotlin-stdlib-1.6.10.jar",
+    "sha256": "5305f7a4dee7a6cb79a29c258aca93de47b49588a6dfc6da01bd8772589ea66c",
+    "licenses": [
+      "The Apache License, Version 2.0"
+    ]
+  },
+  {
+    "file": "kotlin-stdlib-common-1.6.10.jar",
+    "url": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/1.6.10/kotlin-stdlib-common-1.6.10.jar",
+    "sha256": "280ddd0994e4560c9a49ee81c1b047ddc2b8f2176159475066025b474b37effd",
+    "licenses": [
+      "The Apache License, Version 2.0"
+    ]
+  },
+  {
+    "file": "kotlin-stdlib-jdk7-1.6.10.jar",
+    "url": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.6.10/kotlin-stdlib-jdk7-1.6.10.jar",
+    "sha256": "2aedcdc6b69b33bdf5cc235bcea88e7cf6601146bb6bcdffdb312bbacd7be261",
+    "licenses": [
+      "The Apache License, Version 2.0"
+    ]
+  },
+  {
+    "file": "kotlin-stdlib-jdk8-1.6.10.jar",
+    "url": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.6.10/kotlin-stdlib-jdk8-1.6.10.jar",
+    "sha256": "1456d82d039ea30d8485b032901f52bbf07e7cdbe8bb1f8708ad32a8574c41ce",
+    "licenses": [
+      "The Apache License, Version 2.0"
+    ]
+  },
+  {
+    "file": "onyxsdk-base-1.8.5.aar",
+    "url": "https://repo.boox.com/repository/maven-public/com/onyx/android/sdk/onyxsdk-base/1.8.5/onyxsdk-base-1.8.5.aar",
+    "sha256": "d2c76deb2bef5b9a2c057c63c412e389d0976683df5081f00ee4aa256d6d0abe",
+    "licenses": []
+  },
+  {
+    "file": "onyxsdk-baselite-1.1.1.aar",
+    "url": "https://repo.boox.com/repository/maven-public/com/onyx/android/sdk/onyxsdk-baselite/1.1.1/onyxsdk-baselite-1.1.1.aar",
+    "sha256": "f7779720fefeba0a19ee1fed885f86320127e0a335c15529543e00574b383bf6",
+    "licenses": []
+  },
+  {
+    "file": "onyxsdk-device-1.3.4.aar",
+    "url": "https://repo.boox.com/repository/maven-public/com/onyx/android/sdk/onyxsdk-device/1.3.4/onyxsdk-device-1.3.4.aar",
+    "sha256": "6a203bf4c9fe68a9380f10e94b2c89a56ed67ff951dd55c96647311c1a14fb4c",
+    "licenses": []
+  },
+  {
+    "file": "onyxsdk-geometry-1.1.3.aar",
+    "url": "https://repo.boox.com/repository/maven-public/com/onyx/android/sdk/onyxsdk-geometry/1.1.3/onyxsdk-geometry-1.1.3.aar",
+    "sha256": "dbd49195cab71fa3ec060dcc7dd6983c882e36d985b6b830fe47c8b4bfa7837c",
+    "licenses": []
+  },
+  {
+    "file": "onyxsdk-pen-1.5.4.aar",
+    "url": "https://repo.boox.com/repository/maven-public/com/onyx/android/sdk/onyxsdk-pen/1.5.4/onyxsdk-pen-1.5.4.aar",
+    "sha256": "dc78c462fe1ffe1d56e4228f131c91644fd12d2289fcf82bd2e3703541f1bf26",
+    "licenses": []
+  },
+  {
+    "file": "onyxsdk-penbrush-1.1.1.aar",
+    "url": "https://repo.boox.com/repository/maven-public/com/onyx/android/sdk/onyxsdk-penbrush/1.1.1/onyxsdk-penbrush-1.1.1.aar",
+    "sha256": "bf3967466ea06fa55954e990fc6b0c1767f1c90d73cd1fe562f575d133630710",
+    "licenses": []
+  },
+  {
+    "file": "onyxsdk-pennative-1.0.4.aar",
+    "url": "https://repo.boox.com/repository/maven-public/com/onyx/android/sdk/onyxsdk-pennative/1.0.4/onyxsdk-pennative-1.0.4.aar",
+    "sha256": "be10f738262a1e504dbeb6817dc81e09f8cd5b3417cda3a67f7e97494fe56dce",
+    "licenses": []
+  },
+  {
+    "file": "reactive-streams-1.0.2.jar",
+    "url": "https://repo.maven.apache.org/maven2/org/reactivestreams/reactive-streams/1.0.2/reactive-streams-1.0.2.jar",
+    "sha256": "cc09ab0b140e0d0496c2165d4b32ce24f4d6446c0a26c5dc77b06bdf99ee8fae",
+    "licenses": [
+      "CC0"
+    ]
+  },
+  {
+    "file": "rxandroid-2.1.0.aar",
+    "url": "https://repo.maven.apache.org/maven2/io/reactivex/rxjava2/rxandroid/2.1.0/rxandroid-2.1.0.aar",
+    "sha256": "5257099da18d6eab4e3c1c854e7415a11809103fcd2d0f6e2b00c06c20e361b7",
+    "licenses": [
+      "The Apache Software License, Version 2.0"
+    ]
+  },
+  {
+    "file": "rxjava-2.1.13.jar",
+    "url": "https://repo.maven.apache.org/maven2/io/reactivex/rxjava2/rxjava/2.1.13/rxjava-2.1.13.jar",
+    "sha256": "d38969d898b7a8ca4ebc15f3ffe576b7b4db29542a371b03af32c1bd2af19e81",
+    "licenses": [
+      "The Apache Software License, Version 2.0"
+    ]
+  }
+]

@@ -16,6 +16,8 @@ public class MainActivity extends Activity {
   final ExecutorService worker = Executors.newSingleThreadExecutor();
   final Handler handler = new Handler(Looper.getMainLooper());
   InkView ink;
+  BooxInk nativeInk;
+  boolean dialogOpen;
   TextView status;
   Button send, previous, next;
   TextView pageIndicator;
@@ -65,7 +67,7 @@ public class MainActivity extends Activity {
         "Clear",
         v -> {
           if (!busy)
-            new AlertDialog.Builder(this)
+            dialogBuilder()
                 .setMessage("Clear your annotations?")
                 .setPositiveButton("Clear", (d, w) -> ink.clear())
                 .setNeutralButton("Discard review", (d, w) -> discard())
@@ -85,6 +87,7 @@ public class MainActivity extends Activity {
     next = button(navigation, "Next", v -> navigate(1));
     root.addView(navigation);
     ink = new InkView(this);
+    nativeInk = new BooxInk(this, ink);
     root.addView(ink, new LinearLayout.LayoutParams(-1, 0, 1));
     setContentView(root);
     restore();
@@ -108,21 +111,66 @@ public class MainActivity extends Activity {
     return b;
   }
 
+  AlertDialog.Builder dialogBuilder() {
+    dialogOpen = true;
+    if (nativeInk != null) nativeInk.suspend();
+    return new AlertDialog.Builder(this)
+        .setOnDismissListener(
+            dialog -> {
+              dialogOpen = false;
+              ink.invalidate();
+              ink.post(() -> nativeInk.refresh());
+            });
+  }
+
+  boolean penActive() {
+    return ink.stylusPointerId != -1 || (nativeInk != null && nativeInk.activeStroke());
+  }
+
+  final Runnable draftSave =
+      new Runnable() {
+        public void run() {
+          if (destroyed) return;
+          if (penActive()) {
+            handler.postDelayed(this, 200);
+            return;
+          }
+          save();
+        }
+      };
+
+  void queueDraftSave() {
+    handler.removeCallbacks(draftSave);
+    handler.postDelayed(draftSave, 200);
+  }
+
+  public void onWindowFocusChanged(boolean focused) {
+    super.onWindowFocusChanged(focused);
+    if (nativeInk != null) {
+      if (!focused) nativeInk.suspend();
+      else ink.post(() -> nativeInk.refresh());
+    }
+  }
+
   protected void onResume() {
     super.onResume();
     stopped = false;
     handler.post(poll);
+    ink.post(() -> nativeInk.refresh());
   }
 
   protected void onPause() {
     super.onPause();
     stopped = true;
+    nativeInk.suspend();
+    handler.removeCallbacks(draftSave);
     handler.removeCallbacks(poll);
     if (ink.stylusPointerId != -1) ink.finishStylus(false);
     save();
   }
 
   protected void onDestroy() {
+    nativeInk.close();
     destroyed = true;
     stopped = true;
     handler.removeCallbacksAndMessages(null);
@@ -134,6 +182,10 @@ public class MainActivity extends Activity {
 
   void updateUi(Runnable action) {
     if (destroyed) return;
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      action.run();
+      return;
+    }
     handler.post(
         () -> {
           if (!destroyed) action.run();
@@ -156,7 +208,7 @@ public class MainActivity extends Activity {
     key.setText(token);
     form.addView(url);
     form.addView(key);
-    new AlertDialog.Builder(this)
+    dialogBuilder()
         .setTitle("Connect to desktop")
         .setMessage("Use a trusted Wi-Fi network or USB. Local HTTP traffic is unencrypted.")
         .setView(form)
@@ -325,9 +377,10 @@ public class MainActivity extends Activity {
   }
 
   void discard() {
-    if (busy || reviewId.isEmpty() || ink.stylusPointerId != -1) return;
+    if (busy || reviewId.isEmpty() || penActive()) return;
     busy = true;
     ink.locked = true;
+    nativeInk.suspend();
     worker.execute(
         () -> {
           try {
@@ -346,6 +399,7 @@ public class MainActivity extends Activity {
                 () -> {
                   status.setText("Cannot discard. Draft kept. " + e.getMessage());
                   ink.locked = submissionAttempted;
+                  ink.post(() -> nativeInk.refresh());
                 });
           } finally {
             updateUi(
@@ -374,6 +428,7 @@ public class MainActivity extends Activity {
   }
 
   void showPage(int index) throws Exception {
+    nativeInk.suspend();
     PageState state = pages.get(index);
     Bitmap bitmap = BitmapFactory.decodeFile(new File(getFilesDir(), state.file).toString());
     if (bitmap == null) throw new IOException("Cached page missing");
@@ -381,6 +436,7 @@ public class MainActivity extends Activity {
     ink.setPage(bitmap);
     ink.load(state.strokes);
     ink.locked = submissionAttempted;
+    ink.post(() -> nativeInk.refresh());
     pagePosition = index;
     state.visited = true;
     if (old != null && old != bitmap) old.recycle();
@@ -388,7 +444,7 @@ public class MainActivity extends Activity {
 
   void navigate(int delta) {
     int target = pagePosition + delta;
-    if (busy || ink.stylusPointerId != -1 || target < 0 || target >= pages.size()) return;
+    if (busy || penActive() || target < 0 || target >= pages.size()) return;
     if (!save()) return;
     try {
       showPage(target);
@@ -412,7 +468,7 @@ public class MainActivity extends Activity {
   }
 
   void submit() {
-    if (busy || reviewId.isEmpty() || ink.page == null || ink.stylusPointerId != -1) return;
+    if (busy || reviewId.isEmpty() || ink.page == null || penActive()) return;
     if (!submissionAttempted) {
       for (PageState page : pages) if (!page.visited) return;
     }
@@ -420,10 +476,12 @@ public class MainActivity extends Activity {
     final boolean previousAttempt = submissionAttempted;
     busy = true;
     ink.locked = true;
+    nativeInk.suspend();
     submissionAttempted = true;
     if (!save()) {
       submissionAttempted = previousAttempt;
       ink.locked = previousAttempt;
+      ink.post(() -> nativeInk.refresh());
       busy = false;
       updateNavigation();
       return;
@@ -492,6 +550,7 @@ public class MainActivity extends Activity {
                   clearReviewFiles();
                   status.setText("Document sent to Codex. Waiting for next review");
                   ink.locked = true;
+                  nativeInk.suspend();
                 });
           } catch (Exception e) {
             final boolean retainLock = keepFrozen || frozen.exists();
@@ -499,6 +558,7 @@ public class MainActivity extends Activity {
                 () -> {
                   submissionAttempted = retainLock;
                   ink.locked = retainLock;
+                  ink.post(() -> nativeInk.refresh());
                   if (!retainLock) save();
                   status.setText(
                       (retainLock
@@ -667,12 +727,14 @@ public class MainActivity extends Activity {
     }
 
     void fit() {
-      if (stylusPointerId != -1) return;
+      if (penActive()) return;
+      if (nativeInk != null) nativeInk.suspend();
       if (page != null && getWidth() > 0) {
         scale = (float) getWidth() / page.getWidth();
         dx = 0;
         dy = 0;
         invalidate();
+        postOnAnimation(() -> post(() -> nativeInk.refresh()));
       }
     }
 
@@ -726,6 +788,7 @@ public class MainActivity extends Activity {
 
     public boolean onTouchEvent(MotionEvent event) {
       if (page == null) return true;
+      if (nativeInk != null && nativeInk.handleTouch(event)) return true;
       int action = event.getActionMasked();
       int actionIndex = event.getActionIndex();
       if (action == MotionEvent.ACTION_CANCEL) {
@@ -736,6 +799,7 @@ public class MainActivity extends Activity {
       }
       if ((action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN)
           && isPen(event, actionIndex)) {
+        requestUnbufferedDispatch(event);
         suppressNavigation = true;
         // Cancel any finger gesture before freezing the transform for ink.
         MotionEvent cancel = MotionEvent.obtain(event);
@@ -828,17 +892,21 @@ public class MainActivity extends Activity {
     }
 
     void undo() {
-      if (locked || stylusPointerId != -1) return;
+      if (locked || penActive()) return;
+      nativeInk.suspend();
       if (!strokes.isEmpty()) strokes.remove(strokes.size() - 1);
       save();
       invalidate();
+      postOnAnimation(() -> post(() -> nativeInk.refresh()));
     }
 
     void clear() {
-      if (locked || stylusPointerId != -1) return;
+      if (locked || penActive()) return;
+      nativeInk.suspend();
       strokes.clear();
       save();
       invalidate();
+      postOnAnimation(() -> post(() -> nativeInk.refresh()));
     }
 
     Bitmap composite() {
