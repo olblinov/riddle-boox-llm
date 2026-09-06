@@ -1,0 +1,182 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+  color: #111;
+  background: #eee;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  padding: 16px 24px;
+  background: white;
+  border-bottom: 2px solid #111;
+}
+h1 {
+  font-size: 22px;
+  margin: 0 0 12px;
+}
+h2 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+#pair {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+#pair label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+}
+input[type="password"] {
+  min-width: 180px;
+  max-width: 500px;
+  width: 100%;
+  padding: 10px;
+}
+button,
+select,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button,
+select {
+  background: white;
+  border: 2px solid #111;
+  border-radius: 4px;
+  min-height: 48px;
+  padding: 10px 16px;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  color: #777;
+  border-color: #aaa;
+  cursor: default;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #111;
+  outline-offset: 3px;
+}
+#send {
+  background: #111;
+  color: white;
+  margin-left: auto;
+}
+#send:disabled {
+  background: #eee;
+  color: #777;
+}
+#status {
+  margin: 12px 0 0;
+  font-size: 15px;
+}
+#controls {
+  padding: 18px 24px;
+  background: white;
+  border-bottom: 1px solid #111;
+}
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.toolbar label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 48px;
+}
+input[type="checkbox"] {
+  width: 24px;
+  height: 24px;
+}
+.note-label {
+  display: block;
+  margin-top: 12px;
+  font-size: 14px;
+}
+textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid #777;
+}
+#viewport {
+  overflow: auto;
+  height: calc(100dvh - 340px);
+  min-height: 320px;
+  padding: 16px;
+  overscroll-behavior: contain;
+}
+#sheet {
+  position: relative;
+  margin: auto;
+  background: white;
+  display: none;
+  touch-action: pan-x pan-y;
+}
+#page {
+  display: block;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+  user-select: none;
+}
+#ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: pan-x pan-y;
+}
+#empty {
+  text-align: center;
+  padding: 80px 20px;
+}
+#notice {
+  padding: 12px 24px;
+  background: white;
+  border-bottom: 2px solid #111;
+}
+#notice p {
+  display: inline-block;
+  margin-right: 16px;
+}
+@media (max-width: 650px) {
+  header,
+  #controls {
+    padding: 12px;
+  }
+  #viewport {
+    padding: 8px;
+    height: 55vh;
+  }
+  #pair label {
+    flex-direction: column;
+    align-items: start;
+  }
+  button,
+  select {
+    padding: 10px;
+  }
+  #send {
+    margin-left: 0;
+  }
+}

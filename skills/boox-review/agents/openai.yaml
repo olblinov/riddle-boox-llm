@@ -1,0 +1,6 @@
+interface:
+  display_name: "BOOX review"
+  short_description: "Read and annotate Codex output on your BOOX tablet"
+  default_prompt: "Use $boox-review to communicate through my BOOX tablet and wait for my pen comments."
+policy:
+  allow_implicit_invocation: true

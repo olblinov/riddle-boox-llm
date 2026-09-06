@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>BOOX review</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>BOOX review</h1>
+      <form id="pair">
+        <label
+          >Pairing token
+          <input
+            id="token"
+            type="password"
+            autocomplete="off"
+            required /></label
+        ><button>Connect</button>
+      </form>
+      <p id="status" role="status" aria-live="polite">
+        Connect using the token shown by your desktop bridge.
+      </p>
+    </header>
+    <main>
+      <section id="controls" aria-label="Page controls">
+        <h2 id="title">Waiting for a page</h2>
+        <div class="toolbar">
+          <button id="undo" disabled>Undo</button
+          ><button id="clear" disabled>Clear ink</button
+          ><label><input id="mouse" type="checkbox" /> Draw with mouse</label
+          ><label
+            >Zoom
+            <select id="zoom">
+              <option value="1">Fit width</option>
+              <option value="1.5">150%</option>
+              <option value="2">200%</option>
+            </select></label
+          ><button id="send" disabled>Send comments</button>
+        </div>
+        <label class="note-label"
+          >Optional typed comment
+          <textarea
+            id="note"
+            rows="2"
+            placeholder="Pen comments can stand alone."
+          ></textarea>
+        </label>
+      </section>
+      <div id="notice" hidden>
+        <p id="notice-text"></p>
+        <button id="next">Open current page</button>
+      </div>
+      <div
+        id="viewport"
+        tabindex="0"
+        aria-label="Review page. Use finger to scroll, pen to draw."
+      >
+        <div id="sheet">
+          <img
+            id="page"
+            alt="Review page from Codex"
+            draggable="false"
+          /><canvas id="ink" aria-label="Pen annotation layer"></canvas>
+        </div>
+        <p id="empty">Pages sent from Codex appear here.</p>
+      </div>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
