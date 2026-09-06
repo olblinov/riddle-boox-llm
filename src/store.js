@@ -42,6 +42,7 @@ export class Store {
     this.directory = directory;
     this.state = { current: null, reviews: {} };
     this.queue = Promise.resolve();
+    this.retentionDays = 90;
   }
   async init() {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -67,6 +68,30 @@ export class Store {
       if (error.code !== "ENOENT") throw error;
     }
     return this;
+  }
+  async history(now = Date.now()) {
+    return this.mutate(() => {
+      const cutoff = now - this.retentionDays * 86400000;
+      for (const [id, review] of Object.entries(this.state.reviews)) {
+        if (review.status !== "submitted") continue;
+        // Older releases did not record submission time. Start their retention now.
+        review.submittedAt ??= new Date(now).toISOString();
+        if (Date.parse(review.submittedAt) < cutoff) {
+          delete this.state.reviews[id];
+          if (this.state.current === id) this.state.current = null;
+        }
+      }
+      return {
+        retentionDays: this.retentionDays,
+        reviews: Object.values(this.state.reviews)
+          .filter((review) => review.status === "submitted")
+          .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
+          .map((review) => ({
+            id: review.id, title: review.title, submittedAt: review.submittedAt,
+            pageCount: review.pages?.length ?? 1,
+          })),
+      };
+    });
   }
   async save() {
     const file = path.join(this.directory, "state.json");
@@ -282,13 +307,14 @@ export class Store {
       if (current.feedback?.submissionId === submissionId) {
         if (JSON.stringify(current.feedback) !== JSON.stringify(feedback))
           fail(409, "Submission ID already used with different feedback");
-        return { ok: true, reviewId: id, status: "submitted" };
+        return { ok: true, reviewId: id, status: "submitted", submittedAt: current.submittedAt ??= new Date().toISOString() };
       }
       if (this.state.current !== id || current.status !== "pending")
         fail(409, "Review is no longer pending");
       current.feedback = feedback;
       current.status = "submitted";
-      return { ok: true, reviewId: id, status: "submitted" };
+      current.submittedAt = new Date().toISOString();
+      return { ok: true, reviewId: id, status: "submitted", submittedAt: current.submittedAt ??= new Date().toISOString() };
     });
   }
   feedback(id) {

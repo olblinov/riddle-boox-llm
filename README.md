@@ -60,3 +60,5 @@ codex mcp remove boox
 Then remove `~/Library/LaunchAgents/com.olblinov.boox-review.plist` and the `~/.agents/skills/boox-review` symlink. This preserves the repository and private review history.
 
 Source: private repository `olblinov/riddle-boox-llm`.
+
+Sent-document history: BOOX History reopens annotated pages offline after caching. Default retention is 90 days; pending drafts do not expire. See [history documentation](docs/history.md).

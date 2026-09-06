@@ -58,6 +58,18 @@ public class MainActivity extends Activity {
     button(bar, "Pair", v -> pair());
     button(
         bar,
+        "History",
+        v -> {
+          if (busy || penActive()) return;
+          nativeInk.suspend();
+          if (!save()) {
+            ink.post(() -> nativeInk.refresh());
+            return;
+          }
+          startActivity(new Intent(this, HistoryActivity.class));
+        });
+    button(
+        bar,
         "Undo",
         v -> {
           if (!busy) ink.undo();
@@ -494,6 +506,7 @@ public class MainActivity extends Activity {
         () -> {
           File frozen = new File(getFilesDir(), "submission.json");
           boolean keepFrozen = previousAttempt || frozen.exists();
+          boolean serverAccepted = false;
           try {
             JSONObject body;
             if (frozen.exists()) {
@@ -544,7 +557,22 @@ public class MainActivity extends Activity {
               atomicWrite("submission.json", encoded);
             }
             keepFrozen = true;
-            request("/api/reviews/" + id + "/feedback", body);
+            byte[] acknowledgement = request("/api/reviews/" + id + "/feedback", body);
+            serverAccepted = true;
+            JSONObject accepted = new JSONObject(new String(acknowledgement, "UTF-8"));
+            String submittedAt =
+                accepted.optString("submittedAt", java.time.Instant.now().toString());
+            // Cache every annotated page durably before deleting the only pending-draft copy.
+            try {
+              HistoryActivity.cacheFeedback(
+                  new HistoryCache(getFilesDir()), id, reviewTitle, submittedAt, body);
+            } catch (Exception cacheError) {
+              throw new IOException(
+                  "Sent to desktop, but offline history save failed. Retry Send to save the"
+                      + " retained copy. "
+                      + cacheError.getMessage(),
+                  cacheError);
+            }
             updateUi(
                 () -> {
                   clearReviewFiles();
@@ -554,6 +582,7 @@ public class MainActivity extends Activity {
                 });
           } catch (Exception e) {
             final boolean retainLock = keepFrozen || frozen.exists();
+            final boolean sent = serverAccepted;
             updateUi(
                 () -> {
                   submissionAttempted = retainLock;
@@ -561,9 +590,11 @@ public class MainActivity extends Activity {
                   ink.post(() -> nativeInk.refresh());
                   if (!retainLock) save();
                   status.setText(
-                      (retainLock
-                              ? "Send not confirmed. Draft kept unchanged. Retry Send. "
-                              : "Nothing sent. Draft remains editable. ")
+                      (sent
+                              ? ""
+                              : retainLock
+                                  ? "Send not confirmed. Draft kept unchanged. Retry Send. "
+                                  : "Nothing sent. Draft remains editable. ")
                           + e.getMessage());
                 });
           } finally {

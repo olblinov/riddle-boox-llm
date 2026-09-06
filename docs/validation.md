@@ -55,3 +55,9 @@ On the connected Note Air2 Plus, the approved four-class compatibility scope ena
 Production version 0.4.0/code 4 installed over the existing app. It restores document annotations and Page 1 / 1, initializes native geometry, and leaves complete persisted bridge state equal to its pre-upgrade copy. Existing pending review remains untouched.
 
 No physical pen raw callback or optical latency measurement was captured in this test. Android-injected stylus events do not feed the native raw reader. Physical pen, eraser and palm acceptance remain unverified; startup logs are not substitutes.
+
+## Sent history 0.5.0
+
+Twenty-one automated tests pass, including 90-day expiry boundary, pending-draft protection and stable submission timestamps across identical retries. Android HistoryCache JVM tests cover offline multipage access, transactional writes, duplicate IDs, shared-instance concurrency, corruption detection/repair and confinement away from pending draft files. Independent review found no remaining blocker after moving history disk reads off the UI thread.
+
+Production APK version 0.5.0/code 5, SHA-256 `56ea65590d3e56e7677934a2187233e5e707ca32e8bd319c26505928a4c3602c`, installed on Note Air2 Plus. History listed five previous submissions. The user's four-page annotated guide opened and navigated from page one to page two. With USB bridge forwarding removed, reopening History and navigating the same document still passed. Forwarding restored afterward. Back returned to existing Page 1 / 1 draft; complete bridge state stayed equal to its pre-install copy. No review was sent or discarded during this test.

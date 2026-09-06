@@ -78,6 +78,8 @@ export async function createBridge({
           if (!body || typeof body !== "object" || Array.isArray(body))
             fail(400, "JSON object required");
         }
+        if (req.method === "GET" && url.pathname === "/api/history")
+          return json(200, await store.history());
         if (req.method === "GET" && url.pathname === "/api/health")
           return json(200, { ok: true, lastTabletPollAt });
         if (req.method === "GET" && url.pathname === "/api/reviews/current") {
@@ -157,6 +159,12 @@ export async function createBridge({
       else res.end();
     }
   });
+  await store.history();
+  const retentionTimer = setInterval(() => {
+    store.history().catch((error) => console.error("History retention failed:", error.message));
+  }, 3600000);
+  retentionTimer.unref();
+  server.on("close", () => clearInterval(retentionTimer));
   server.requestTimeout = 30000;
   server.headersTimeout = 10000;
   return { server, store };

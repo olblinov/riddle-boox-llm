@@ -526,3 +526,26 @@ test("chunked oversize upload receives JSON limit error without partial review",
   assert.match((await response.json()).error, /24 MiB/);
   assert.equal(f.store.current(), null);
 });
+
+
+test("sent history persists, expires after 90 days, and never removes pending drafts", async (t) => {
+  const f = await fixture(t);
+  const sent = (await f.api("/api/reviews", f.page)).body;
+  await f.api(`/api/reviews/${sent.id}/feedback`, f.feedback);
+  const firstAck = await f.api(`/api/reviews/${sent.id}/feedback`, f.feedback);
+  const retryAck = await f.api(`/api/reviews/${sent.id}/feedback`, f.feedback);
+  assert.ok(firstAck.body.submittedAt);
+  assert.equal(retryAck.body.submittedAt, firstAck.body.submittedAt);
+  const pending = (await f.api("/api/reviews", f.page)).body;
+  const history = await f.api("/api/history");
+  assert.equal(history.status, 200);
+  assert.equal(history.body.retentionDays, 90);
+  assert.deepEqual(history.body.reviews.map(r => r.id), [sent.id]);
+  assert.equal(history.body.reviews[0].pageCount, 1);
+  assert.equal((await f.api(`/api/reviews/${sent.id}/feedback`)).body.status, "submitted");
+  const timestamp = Date.parse(history.body.reviews[0].submittedAt);
+  assert.equal((await f.store.history(timestamp + 90 * 86400000)).reviews.length, 1);
+  assert.equal((await f.store.history(timestamp + 90 * 86400000 + 1)).reviews.length, 0);
+  assert.equal(f.store.get(pending.id).status, "pending");
+  assert.equal(JSON.parse(await readFile(path.join(f.directory, "state.json"))).reviews[sent.id], undefined);
+});
