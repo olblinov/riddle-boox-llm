@@ -1,0 +1,11 @@
+node_modules/
+dist/
+work/
+outputs/
+.runtime/
+.env
+*.log
+.gradle/
+local.properties
+**/build/
+.DS_Store
