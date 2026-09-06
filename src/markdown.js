@@ -1,0 +1,619 @@
+import MarkdownIt from "markdown-it";
+import sharp from "sharp";
+import { open } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import path from "node:path";
+
+const MAX_BYTES = 256 * 1024;
+const MAX_PAGES = 200;
+const parser = new MarkdownIt({
+  html: false,
+  linkify: false,
+  typographer: false,
+});
+const escape = (text) =>
+  String(text).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&apos;",
+      })[c],
+  );
+
+function inlineRuns(tokens = []) {
+  const result = [];
+  const styles = { bold: 0, italic: 0, strike: 0 };
+  const links = [];
+  const add = (text, extra = {}) => {
+    if (text)
+      result.push({
+        text,
+        bold: styles.bold > 0,
+        italic: styles.italic > 0,
+        strike: styles.strike > 0,
+        ...extra,
+      });
+  };
+  for (const token of tokens) {
+    if (token.type === "strong_open") styles.bold++;
+    else if (token.type === "strong_close") styles.bold--;
+    else if (token.type === "em_open") styles.italic++;
+    else if (token.type === "em_close") styles.italic--;
+    else if (token.type === "s_open") styles.strike++;
+    else if (token.type === "s_close") styles.strike--;
+    else if (token.type === "code_inline") add(token.content, { code: true });
+    else if (token.type === "softbreak") add(" ");
+    else if (token.type === "hardbreak") add("\n");
+    else if (token.type === "link_open")
+      links.push(token.attrGet("href") ?? "");
+    else if (token.type === "link_close") {
+      const href = links.pop();
+      if (href) add(` (${href})`);
+    } else if (token.type === "image")
+      add(
+        `[Image not rendered: ${token.content || "no alt text"} (${token.attrGet("src") || "no source"})]`,
+        { italic: true },
+      );
+    else if (token.type === "text" || token.type === "html_inline")
+      add(token.content);
+    else if (token.content) add(`[${token.type}: ${token.content}]`);
+  }
+  return result;
+}
+
+function markup(runs) {
+  return runs
+    .map((run) => {
+      let value = escape(run.text);
+      if (run.code) value = `<span font_family="monospace">${value}</span>`;
+      if (run.bold) value = `<b>${value}</b>`;
+      if (run.italic) value = `<i>${value}</i>`;
+      if (run.strike) value = `<s>${value}</s>`;
+      return value;
+    })
+    .join("");
+}
+
+function joinRuns(runs) {
+  const merged = [];
+  for (const run of runs) {
+    const previous = merged.at(-1);
+    if (
+      previous &&
+      ["bold", "italic", "code", "strike"].every(
+        (key) => previous[key] === run[key],
+      )
+    )
+      previous.text += run.text;
+    else merged.push({ ...run });
+  }
+  return merged;
+}
+
+function dimensions(width, height) {
+  if (
+    !Number.isInteger(width) ||
+    !Number.isInteger(height) ||
+    width < 600 ||
+    height < 800 ||
+    width > 4096 ||
+    height > 4096 ||
+    width * height > 16_000_000
+  )
+    throw new Error(
+      "Markdown page dimensions must be 600–4096 by 800–4096, at most 16 million pixels",
+    );
+  const scale = width / 1404;
+  const font = Math.max(18, Math.round(28 * scale));
+  const margin = Math.round(56 * scale);
+  const annotation = Math.max(100, Math.round(240 * scale));
+  return {
+    width,
+    height,
+    font,
+    margin,
+    annotation,
+    contentWidth: width - margin * 2 - annotation,
+    top: Math.max(55, Math.round(80 * scale)),
+    bottom: Math.max(55, Math.round(80 * scale)),
+  };
+}
+
+/** Internal layout is exported for tests of text preservation and source mapping. */
+export async function layoutMarkdown(
+  source,
+  { width = 1404, height = 1872, deadline = Date.now() + 40000 } = {},
+) {
+  const geometry = dimensions(width, height);
+  const { font, margin, contentWidth } = geometry;
+  const tokens = parser.parse(source, {});
+  const rows = [];
+  const measurement = new Map();
+  const measure = async (runs, size) => {
+    if (Date.now() > deadline)
+      throw new Error(
+        "Markdown render exceeded 40 seconds; split the source document",
+      );
+    const value = markup(runs);
+    if (!value || !runs.some((run) => /\S/u.test(run.text))) return 0;
+    const key = `${size}:${value}`;
+    if (!measurement.has(key)) {
+      let measured = (
+        await sharp({
+          text: { text: value, font: `sans ${size}`, rgba: true },
+        }).metadata()
+      ).width;
+      const leading = runs
+        .map((run) => run.text)
+        .join("")
+        .match(/^ +/u)?.[0];
+      if (leading && runs[0]?.code) {
+        const sample = async (text) =>
+          (
+            await sharp({
+              text: {
+                text: markup([{ ...runs[0], text }]),
+                font: `sans ${size}`,
+                rgba: true,
+              },
+            }).metadata()
+          ).width;
+        measured += (await sample(`X${leading}X`)) - (await sample("XX"));
+      }
+      measurement.set(key, measured);
+    }
+    return measurement.get(key);
+  };
+  const wrap = async (runs, available, size) => {
+    const lines = [];
+    let line = [];
+    const flush = () => {
+      lines.push(joinRuns(line));
+      line = [];
+    };
+    // Whitespace belongs to the layout too, including indentation in code.
+    for (const run of runs) {
+      const parts = run.text
+        .split(/(\n|[^\S\n]+|[^\s]+)/u)
+        .filter(Boolean)
+        .flatMap((part) =>
+          Array.from(part).length > 256 ? part.match(/.{1,256}/gu) : [part],
+        );
+      for (const part of parts) {
+        if (part === "\n") {
+          flush();
+          continue;
+        }
+        const addition = { ...run, text: part };
+        if ((await measure([...line, addition], size)) <= available) {
+          line.push(addition);
+          continue;
+        }
+        if (line.length && /\S/u.test(line.map((r) => r.text).join("")))
+          flush();
+        // Split long URLs, code identifiers and CJK text by Unicode code point.
+        if ((await measure([addition], size)) > available) {
+          for (const character of part) {
+            const atom = { ...run, text: character };
+            if (
+              line.length &&
+              (await measure([...line, atom], size)) > available
+            )
+              flush();
+            line.push(atom);
+          }
+        } else line.push(addition);
+      }
+    }
+    if (line.length || !lines.length) flush();
+    return lines;
+  };
+  const addText = async (runs, range, options = {}) => {
+    const size = options.size ?? font;
+    const indent = options.indent ?? 0;
+    const lineHeight = Math.ceil(size * 1.55);
+    const lines = await wrap(
+      runs,
+      contentWidth - indent - (options.code ? 24 : 0),
+      size,
+    );
+    for (const line of lines)
+      rows.push({
+        start: range[0] + 1,
+        end: Math.max(range[0] + 1, range[1]),
+        height: lineHeight,
+        cells: [
+          {
+            x: indent + (options.code ? 12 : 0),
+            width: contentWidth - indent,
+            runs: line,
+            size,
+          },
+        ],
+        text: line.map((r) => r.text).join(""),
+        quote: options.quote,
+        code: options.code,
+      });
+  };
+  const gap = (amount = Math.ceil(font * 0.55)) =>
+    rows.push({ height: amount, cells: [], text: "", gap: true });
+  let quote = 0,
+    heading = 0;
+  const lists = [];
+  let prefix = "";
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type === "blockquote_open") {
+      quote++;
+      continue;
+    }
+    if (token.type === "blockquote_close") {
+      quote--;
+      gap();
+      continue;
+    }
+    if (
+      token.type === "bullet_list_open" ||
+      token.type === "ordered_list_open"
+    ) {
+      lists.push({
+        ordered: token.type === "ordered_list_open",
+        number: Number(token.attrGet("start") || 1),
+      });
+      continue;
+    }
+    if (
+      token.type === "bullet_list_close" ||
+      token.type === "ordered_list_close"
+    ) {
+      lists.pop();
+      gap();
+      continue;
+    }
+    if (token.type === "list_item_close") {
+      prefix = "";
+      continue;
+    }
+    if (token.type === "list_item_open") {
+      const list = lists.at(-1);
+      prefix = list?.ordered ? `${list.number++}. ` : "• ";
+      continue;
+    }
+    if (token.type === "heading_open") {
+      heading = Number(token.tag.slice(1));
+      gap();
+      continue;
+    }
+    if (token.type === "heading_close") {
+      heading = 0;
+      gap();
+      continue;
+    }
+    if (token.type === "paragraph_close") {
+      gap();
+      continue;
+    }
+    if (token.type === "inline") {
+      let runs = inlineRuns(token.children);
+      if (prefix) {
+        runs.unshift({ text: prefix });
+        prefix = "";
+      }
+      if (heading) runs = runs.map((run) => ({ ...run, bold: true }));
+      await addText(runs, token.map ?? [0, 1], {
+        size: heading
+          ? Math.round(font * ({ 1: 1.65, 2: 1.4, 3: 1.2 }[heading] ?? 1.08))
+          : font,
+        indent: Math.min(
+          contentWidth / 3,
+          Math.max(0, lists.length - 1) * font + quote * font,
+        ),
+        quote: quote > 0,
+      });
+      continue;
+    }
+    if (token.type === "fence" || token.type === "code_block") {
+      gap();
+      const range = token.map ?? [0, 1];
+      if (token.info)
+        await addText([{ text: `Code · ${token.info}`, bold: true }], range, {
+          size: Math.round(font * 0.8),
+        });
+      const lines = token.content.replace(/\n$/, "").split("\n");
+      for (let index = 0; index < lines.length; index++) {
+        const sourceLine = range[0] + (token.type === "fence" ? 1 : 0) + index;
+        await addText(
+          [{ text: lines[index].replace(/\t/g, "    ") || " ", code: true }],
+          [sourceLine, sourceLine + 1],
+          { code: true, size: Math.round(font * 0.88) },
+        );
+      }
+      gap();
+      continue;
+    }
+    if (token.type === "hr") {
+      rows.push({
+        start: token.map[0] + 1,
+        end: token.map[1],
+        height: font,
+        cells: [],
+        text: "",
+        rule: true,
+      });
+      continue;
+    }
+    if (token.type === "table_open") {
+      gap();
+      const range = token.map ?? [0, 1];
+      const tableRows = [];
+      let row = null,
+        cell = null,
+        header = false;
+      while (++i < tokens.length && tokens[i].type !== "table_close") {
+        const part = tokens[i];
+        if (part.type === "thead_open") header = true;
+        if (part.type === "thead_close") header = false;
+        if (part.type === "tr_open") {
+          row = { cells: [], header, range: part.map };
+          tableRows.push(row);
+        }
+        if (part.type === "th_open" || part.type === "td_open") {
+          cell = [];
+          row.cells.push(cell);
+        }
+        if (part.type === "inline")
+          cell.push(
+            ...inlineRuns(part.children).map((run) => ({
+              ...run,
+              bold: header || run.bold,
+            })),
+          );
+      }
+      const columns = Math.max(...tableRows.map((r) => r.cells.length));
+      const perBand = Math.max(
+        1,
+        Math.floor(contentWidth / Math.max(130, font * 5)),
+      );
+      for (let first = 0; first < columns; first += perBand) {
+        const count = Math.min(perBand, columns - first),
+          cellWidth = contentWidth / count;
+        if (columns > perBand)
+          await addText(
+            [
+              {
+                text: `Table columns ${first + 1}–${first + count} of ${columns}`,
+                italic: true,
+              },
+            ],
+            range,
+            { size: Math.round(font * 0.8) },
+          );
+        for (let r = 0; r < tableRows.length; r++) {
+          const tableRow = tableRows[r];
+          const wrapped = await Promise.all(
+            Array.from({ length: count }, (_, n) =>
+              wrap(
+                tableRow.cells[first + n] ?? [],
+                cellWidth - 20,
+                Math.round(font * 0.88),
+              ),
+            ),
+          );
+          const lineCount = Math.max(...wrapped.map((lines) => lines.length));
+          const rowRange = tableRow.range ?? [
+            range[0] + r + (r ? 1 : 0),
+            range[0] + r + (r ? 2 : 1),
+          ];
+          for (let line = 0; line < lineCount; line++) {
+            const cells = wrapped.map((lines, n) => ({
+              x: n * cellWidth + 10,
+              width: cellWidth,
+              runs: lines[line] ?? [],
+              size: Math.round(font * 0.88),
+            }));
+            rows.push({
+              start: rowRange[0] + 1,
+              end: rowRange[1],
+              height: Math.ceil(font * 1.5),
+              cells,
+              table: true,
+              tableFirst: line === 0,
+              tableLast: line === lineCount - 1,
+              header: tableRow.header,
+              text: cells
+                .map((c) => c.runs.map((run) => run.text).join(""))
+                .join(" | "),
+            });
+          }
+        }
+        gap();
+      }
+      continue;
+    }
+    if (token.content && !token.type.endsWith("_close"))
+      await addText(
+        [{ text: `[Unsupported ${token.type}] ${token.content}` }],
+        token.map ?? [0, 1],
+      );
+  }
+  if (!rows.some((row) => !row.gap))
+    await addText([{ text: "(Empty document)", italic: true }], [0, 1]);
+  const pages = [];
+  let page = { rows: [], sourceStartLine: Infinity, sourceEndLine: 1 },
+    y = geometry.top;
+  const finish = () => {
+    if (!page.rows.some((row) => !row.gap)) return;
+    pages.push(page);
+    if (pages.length > MAX_PAGES)
+      throw new Error(
+        `Markdown exceeds ${MAX_PAGES} pages; split the source document`,
+      );
+    page = { rows: [], sourceStartLine: Infinity, sourceEndLine: 1 };
+    y = geometry.top;
+  };
+  for (const row of rows) {
+    if (row.height > height - geometry.top - geometry.bottom)
+      throw new Error("Page too short for Markdown row");
+    if (y + row.height > height - geometry.bottom) finish();
+    if (row.gap && !page.rows.length) continue;
+    page.rows.push({ ...row, y });
+    y += row.height;
+    if (row.start) {
+      page.sourceStartLine = Math.min(page.sourceStartLine, row.start);
+      page.sourceEndLine = Math.max(page.sourceEndLine, row.end);
+    }
+  }
+  finish();
+  return { geometry, pages };
+}
+
+async function rasterizePage(page, geometry, index, count, filename, deadline) {
+  const { width, height, margin, contentWidth, font } = geometry;
+  const overlays = [];
+  const decorations = [];
+  const textImage = async (runs, size, left, top) => {
+    if (!runs.some((run) => /\S/u.test(run.text))) return;
+    const input = await sharp({
+      text: { text: markup(runs), font: `sans ${size}`, rgba: true },
+    })
+      .png()
+      .toBuffer();
+    const leading = runs
+      .map((run) => run.text)
+      .join("")
+      .match(/^ +/u)?.[0];
+    if (leading && runs[0]?.code) {
+      const sample = async (value) =>
+        (
+          await sharp({
+            text: {
+              text: markup([{ ...runs[0], text: value }]),
+              font: `sans ${size}`,
+              rgba: true,
+            },
+          }).metadata()
+        ).width;
+      left += (await sample(`X${leading}X`)) - (await sample("XX"));
+    }
+    overlays.push({ input, left: Math.round(left), top: Math.round(top) });
+  };
+  for (const row of page.rows) {
+    if (Date.now() > deadline)
+      throw new Error(
+        "Markdown render exceeded 40 seconds; split the source document",
+      );
+    if (row.code || row.header)
+      decorations.push(
+        `<rect x="${margin}" y="${row.y}" width="${contentWidth}" height="${row.height}" fill="#eeeeee"/>`,
+      );
+    if (row.quote)
+      decorations.push(
+        `<line x1="${margin + font / 2}" y1="${row.y}" x2="${margin + font / 2}" y2="${row.y + row.height}" stroke="black" stroke-width="3"/>`,
+      );
+    if (row.rule)
+      decorations.push(
+        `<line x1="${margin}" y1="${row.y + row.height / 2}" x2="${margin + contentWidth}" y2="${row.y + row.height / 2}" stroke="black" stroke-width="2"/>`,
+      );
+    if (row.table)
+      for (const cell of row.cells) {
+        const x = margin + cell.x - 10,
+          right = x + cell.width;
+        decorations.push(
+          `<path d="M${x},${row.y}V${row.y + row.height} M${right},${row.y}V${row.y + row.height}${row.tableFirst || row === page.rows[0] ? ` M${x},${row.y}H${right}` : ""}${row.tableLast || row === page.rows.at(-1) ? ` M${x},${row.y + row.height}H${right}` : ""}" fill="none" stroke="#555" stroke-width="1"/>`,
+        );
+      }
+    for (const cell of row.cells)
+      await textImage(
+        cell.runs,
+        cell.size,
+        margin + cell.x,
+        row.y + Math.max(2, (row.height - cell.size) / 2),
+      );
+  }
+  const label = `${filename.length > 54 ? filename.slice(0, 51) + "…" : filename} · lines ${page.sourceStartLine}–${page.sourceEndLine} · ${index}/${count}`;
+  await textImage(
+    [{ text: label }],
+    Math.max(14, Math.round(font * 0.63)),
+    margin,
+    height - geometry.bottom / 2,
+  );
+  await textImage(
+    [{ text: "Comments" }],
+    Math.max(14, Math.round(font * 0.65)),
+    margin + contentWidth + 24,
+    geometry.top - 30,
+  );
+  const background = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="white"/><line x1="${margin + contentWidth + 12}" y1="${geometry.top}" x2="${margin + contentWidth + 12}" y2="${height - geometry.bottom}" stroke="#aaa" stroke-dasharray="4 8"/>${decorations.join("")}</svg>`,
+  );
+  return sharp(background).composite(overlays).png().toBuffer();
+}
+
+export async function renderMarkdownFile(
+  filePath,
+  { width = 1404, height = 1872, expectedSha256 } = {},
+) {
+  const absolutePath = path.resolve(filePath);
+  const file = await open(absolutePath, "r");
+  let bytes;
+  try {
+    const stat = await file.stat();
+    if (!stat.isFile())
+      throw new Error("Markdown source must be a regular file");
+    if (stat.size > MAX_BYTES)
+      throw new Error(`Markdown source exceeds ${MAX_BYTES} bytes`);
+    const buffer = Buffer.alloc(MAX_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const result = await file.read(
+        buffer,
+        length,
+        buffer.length - length,
+        null,
+      );
+      if (!result.bytesRead) break;
+      length += result.bytesRead;
+    }
+    if (length > MAX_BYTES)
+      throw new Error(`Markdown source exceeds ${MAX_BYTES} bytes`);
+    bytes = buffer.subarray(0, length);
+  } finally {
+    await file.close();
+  }
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  if (expectedSha256 !== undefined && expectedSha256 !== sha256)
+    throw new Error("Markdown source changed: SHA-256 mismatch");
+  const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  const deadline = Date.now() + 40000;
+  const layout = await layoutMarkdown(source, { width, height, deadline });
+  const pages = [];
+  for (const [index, page] of layout.pages.entries()) {
+    if (Date.now() > deadline)
+      throw new Error(
+        "Markdown render exceeded 40 seconds; split the source document",
+      );
+    pages.push({
+      imageBase64: (
+        await rasterizePage(
+          page,
+          layout.geometry,
+          index + 1,
+          layout.pages.length,
+          path.basename(absolutePath),
+          deadline,
+        )
+      ).toString("base64"),
+      width,
+      height,
+      sourceStartLine: page.sourceStartLine,
+      sourceEndLine: page.sourceEndLine,
+      pageIndex: index + 1,
+      pageCount: layout.pages.length,
+    });
+  }
+  return { source: { path: absolutePath, sha256 }, pages };
+}

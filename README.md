@@ -23,6 +23,14 @@ Start a Codex task with:
 
 Pen draws. Fingers navigate. Undo removes the last stroke. Send submits explicitly. Drafts survive interruption; failed requests retain comments. Codex waits in bounded calls and resumes using the same review ID.
 
+## Review generated Markdown
+
+Ask Codex:
+
+> Draft the design in design.md, send the rendered file to my BOOX, wait for my pen edits, then update the Markdown from my comments.
+
+`boox_present` accepts `markdown_path`. Long files become numbered pages with room for annotations. Tap Send after each page; Codex collects comments, maps them to the reviewed source, and edits the original `.md`. A source checksum and snapshot protect against overwriting changes made during review. No Android update is required for Markdown pages.
+
 ## Manual service
 
 ```sh

@@ -28,3 +28,9 @@ Coordinates are source image pixels. PNG dimensions match review. Browser/native
 ## Delivery and validation
 
 Build native APK; test HTTP lifecycle, auth, stale/duplicate submissions, MCP image result, browser annotation roundtrip. Physical BOOX validation requires tablet connected/reachable. Keep this document and README current. User delegated design decisions and authorized creating tasks and private repository.
+
+## Markdown reviews
+
+`boox_present` accepts `markdown_path`, optional 1-based `markdown_page`, and `expected_sha256`. Desktop renderer produces numbered PNG pages with annotation whitespace. Each review persists source path, SHA-256, immutable source snapshot path, page count/index, and source line range. Feedback returns that metadata alongside ink and composite.
+
+Long documents use one explicit Send per page on existing clients. Codex collects all page feedback before modifying the original Markdown, then checks current source against the reviewed snapshot to avoid losing concurrent edits. This requires no Android update. Source remains Markdown; PNG is only the review surface. Rendering never executes document HTML or fetches remote resources.

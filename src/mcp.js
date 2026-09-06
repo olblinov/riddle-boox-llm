@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readFile } from "node:fs/promises";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderPage } from "./render.js";
@@ -14,7 +15,7 @@ export function createMcp({
       "token",
     ),
 } = {}) {
-  const server = new McpServer({ name: "boox-review", version: "0.1.0" });
+  const server = new McpServer({ name: "boox-review", version: "0.2.0" });
   const request = async (endpoint, body) => {
     const token = (await readFile(tokenPath, "utf8")).trim();
     const response = await fetch(new URL(endpoint, url), {
@@ -47,10 +48,16 @@ export function createMcp({
   };
   server.tool(
     "boox_present",
-    "Present a persistent page on paired BOOX for handwritten feedback. Provide exactly one PNG path, plain text, or constrained diagram scene. A pending review must be completed or cancelled first.",
+    "Present a persistent page on paired BOOX for handwritten feedback. Provide exactly one PNG path, Markdown file path, plain text, or constrained diagram scene. Markdown renders as numbered pages; submit each page and retain source checksum before adapting the original file. A pending review must be completed or cancelled first.",
     {
       title: z.string().min(1).max(200),
       image_path: z.string().optional(),
+      markdown_path: z.string().optional(),
+      markdown_page: z.number().int().min(1).max(200).optional(),
+      expected_sha256: z
+        .string()
+        .regex(/^[a-f0-9]{64}$/)
+        .optional(),
       text: z.string().max(20000).optional(),
       scene: z
         .array(
@@ -71,14 +78,95 @@ export function createMcp({
       width: z.number().int().min(100).max(4096).optional(),
       height: z.number().int().min(100).max(4096).optional(),
     },
-    safe(async (args) =>
-      output(
+    safe(async (args) => {
+      const inputs = [
+        args.image_path,
+        args.markdown_path,
+        args.text,
+        args.scene,
+      ];
+      if (inputs.filter((value) => value !== undefined).length !== 1) {
+        throw new Error(
+          "Provide exactly one of image_path, markdown_path, text, scene",
+        );
+      }
+      if (args.markdown_path !== undefined) {
+        const { renderMarkdownFile } = await import("./markdown.js");
+        const document = await renderMarkdownFile(args.markdown_path, {
+          width: args.width,
+          height: args.height,
+          expectedSha256: args.expected_sha256,
+        });
+        const index = args.markdown_page ?? 1;
+        const page = document.pages[index - 1];
+        if (!page)
+          throw new Error(
+            `Markdown has ${document.pages.length} pages; requested ${index}`,
+          );
+        const original = await readFile(document.source.path);
+        if (
+          createHash("sha256").update(original).digest("hex") !==
+          document.source.sha256
+        ) {
+          throw new Error(
+            "Markdown changed during rendering; retry before requesting feedback",
+          );
+        }
+        const snapshotDirectory = path.join(
+          path.dirname(path.resolve(tokenPath)),
+          "documents",
+        );
+        await mkdir(snapshotDirectory, { recursive: true, mode: 0o700 });
+        const snapshotPath = path.join(
+          snapshotDirectory,
+          `${document.source.sha256}.md`,
+        );
+        try {
+          await writeFile(snapshotPath, original, { mode: 0o600, flag: "wx" });
+        } catch (error) {
+          if (error.code !== "EEXIST") throw error;
+          if (
+            createHash("sha256")
+              .update(await readFile(snapshotPath))
+              .digest("hex") !== document.source.sha256
+          ) {
+            throw new Error("Stored Markdown snapshot checksum mismatch");
+          }
+        }
+        const source = {
+          kind: "markdown",
+          ...document.source,
+          snapshotPath,
+          pageIndex: index,
+          pageCount: document.pages.length,
+          startLine: page.sourceStartLine,
+          endLine: page.sourceEndLine,
+        };
+        return output(
+          await request("/api/reviews", {
+            title: `${args.title.slice(0, 175)} · ${index}/${document.pages.length}`,
+            imageBase64: page.imageBase64,
+            width: page.width,
+            height: page.height,
+            source,
+          }),
+        );
+      }
+      if (
+        args.markdown_page !== undefined ||
+        args.expected_sha256 !== undefined
+      ) {
+        throw new Error(
+          "markdown_page and expected_sha256 require markdown_path",
+        );
+      }
+      return output(
         await request("/api/reviews", {
           title: args.title,
           ...(await renderPage(args)),
         }),
-      ),
-    ),
+      );
+    }),
   );
   server.tool(
     "boox_wait_feedback",

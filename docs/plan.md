@@ -12,3 +12,5 @@ Design authority was explicitly delegated by user. No extra design approval gate
 ## Delivery status
 
 Software implementation, native APK build, browser regression, and live Codex MCP image-feedback acceptance complete. Skill and local login service installed. Hardware acceptance waits for connected BOOX. Private repository and prerelease hold source and APK.
+
+Markdown extension complete: paginated rendering, source snapshots/checksums, feedback mapping, skill adaptation workflow, and live source-edit acceptance. Android APK unchanged because pages remain PNG.

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -232,4 +232,76 @@ test("stdio MCP process exposes tools without contaminating protocol stdout", as
     JSON.parse(status.content[0].text).health.lastTabletPollAt,
     null,
   );
+});
+
+test("Markdown review preserves source context and rejects changed versions", async (t) => {
+  const f = await fixture(t);
+  const file = path.join(f.directory, "proposal.md");
+  const markdown =
+    "# Review proposal\n\n" +
+    Array.from(
+      { length: 35 },
+      (_, i) =>
+        `## Section ${i + 1}\n\nKeep this source intact until all pen comments have returned. Each page is part of the same document.\n\n`,
+    ).join("");
+  await writeFile(file, markdown);
+  const server = createMcp({
+    url: f.url,
+    tokenPath: path.join(f.directory, "token"),
+  });
+  const client = new Client({ name: "markdown-roundtrip", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(a), client.connect(b)]);
+  t.after(() => Promise.all([client.close(), server.close()]));
+  const presented = await client.callTool({
+    name: "boox_present",
+    arguments: { title: "Proposal", markdown_path: file },
+  });
+  assert.equal(presented.isError, undefined, JSON.stringify(presented));
+  const review = JSON.parse(presented.content[0].text);
+  assert.equal(review.source.path, file);
+  assert.equal(review.source.kind, "markdown");
+  assert.equal(review.source.pageIndex, 1);
+  assert.ok(review.source.pageCount > 1);
+  assert.ok(review.source.startLine >= 1);
+  assert.ok(review.source.endLine >= review.source.startLine);
+  assert.equal(await readFile(review.source.snapshotPath, "utf8"), markdown);
+  const page = f.store.get(review.id);
+  const submitted = await f.api(`/api/reviews/${review.id}/feedback`, {
+    ...f.feedback,
+    compositeBase64: page.imageBase64,
+  });
+  assert.equal(submitted.status, 200);
+  const feedback = await client.callTool({
+    name: "boox_wait_feedback",
+    arguments: { review_id: review.id, wait_seconds: 0 },
+  });
+  assert.deepEqual(JSON.parse(feedback.content[0].text).source, review.source);
+  assert.equal(feedback.content[1].type, "image");
+  const second = await client.callTool({
+    name: "boox_present",
+    arguments: {
+      title: "Proposal",
+      markdown_path: file,
+      markdown_page: 2,
+      expected_sha256: review.source.sha256,
+    },
+  });
+  assert.equal(second.isError, undefined, JSON.stringify(second));
+  assert.equal(JSON.parse(second.content[0].text).source.pageIndex, 2);
+  assert.equal(await readFile(file, "utf8"), markdown);
+  await writeFile(file, markdown + "\nNew concurrent change.\n");
+  const changed = await client.callTool({
+    name: "boox_present",
+    arguments: {
+      title: "Proposal",
+      markdown_path: file,
+      markdown_page: 2,
+      expected_sha256: review.source.sha256,
+    },
+  });
+  assert.equal(changed.isError, true);
+  assert.match(changed.content[0].text, /changed|checksum|SHA|version/i);
+  const restored = await createBridge({ directory: f.directory });
+  assert.deepEqual(restored.store.feedback(review.id).source, review.source);
 });

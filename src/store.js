@@ -100,7 +100,31 @@ export class Store {
     return review ? this.metadata(review) : null;
   }
   async create(body) {
-    const { title, imageBase64, width, height } = body;
+    const { title, imageBase64, width, height, source } = body;
+    if (source !== undefined) {
+      if (
+        !source ||
+        source.kind !== "markdown" ||
+        typeof source.path !== "string" ||
+        !path.isAbsolute(source.path) ||
+        source.path.length > 4096 ||
+        typeof source.snapshotPath !== "string" ||
+        !path.isAbsolute(source.snapshotPath) ||
+        source.snapshotPath.length > 4096 ||
+        !/^[a-f0-9]{64}$/.test(source.sha256) ||
+        !Number.isInteger(source.pageIndex) ||
+        !Number.isInteger(source.pageCount) ||
+        source.pageIndex < 1 ||
+        source.pageIndex > source.pageCount ||
+        source.pageCount > 200 ||
+        !Number.isInteger(source.startLine) ||
+        !Number.isInteger(source.endLine) ||
+        source.startLine < 1 ||
+        source.endLine < source.startLine
+      ) {
+        fail(400, "Invalid Markdown source metadata");
+      }
+    }
     if (typeof title !== "string" || !title.trim() || title.length > 200)
       fail(400, "Title required, maximum 200 characters");
     if (
@@ -127,6 +151,7 @@ export class Store {
         createdAt: new Date().toISOString(),
         imageUrl: `/api/reviews/${id}/image`,
         imageBase64,
+        ...(source ? { source } : {}),
       };
       this.state.reviews[id] = review;
       this.state.current = id;
@@ -193,7 +218,12 @@ export class Store {
   feedback(id) {
     const review = this.get(id);
     return review.feedback
-      ? { status: "submitted", reviewId: id, ...review.feedback }
+      ? {
+          status: "submitted",
+          reviewId: id,
+          ...(review.source ? { source: review.source } : {}),
+          ...review.feedback,
+        }
       : { status: review.status };
   }
   cancel(id) {
