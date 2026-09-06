@@ -20,7 +20,8 @@ public final class HistoryActivity extends Activity {
   private volatile boolean destroyed;
   private volatile HttpURLConnection connection;
   private HistoryCache cache;
-  private TextView status, indicator;
+  private TextView status, indicator, heading, subtitle;
+  private Button back;
   private LinearLayout content, navigation;
   private Button previous, next;
   private String selectedId;
@@ -35,19 +36,33 @@ public final class HistoryActivity extends Activity {
     root.setOrientation(1);
     root.setBackgroundColor(Color.WHITE);
     LinearLayout bar = new LinearLayout(this);
-    button(bar, "Back to review", v -> finish());
-    button(
-        bar,
-        "Documents",
-        v -> {
-          selectedId = null;
-          showList();
-        });
-    button(bar, "Refresh", v -> sync());
+    back =
+        button(
+            bar,
+            "Inbox",
+            v -> {
+              if (selectedId != null) {
+                selectedId = null;
+                showList();
+              } else finish();
+            });
+    button(bar, "More", v -> showMore());
     root.addView(bar);
+    heading = new TextView(this);
+    heading.setTextSize(28);
+    heading.setTextColor(Color.BLACK);
+    heading.setTypeface(null, Typeface.BOLD);
+    heading.setPadding(dp(20), dp(20), dp(20), dp(6));
+    root.addView(heading);
+    subtitle = new TextView(this);
+    subtitle.setTextSize(15);
+    subtitle.setTextColor(Color.DKGRAY);
+    subtitle.setPadding(dp(20), 0, dp(20), dp(8));
+    root.addView(subtitle);
     status = new TextView(this);
-    status.setTextSize(16);
-    status.setPadding(12, 8, 12, 8);
+    status.setTextSize(13);
+    status.setTextColor(Color.DKGRAY);
+    status.setPadding(dp(20), 0, dp(20), dp(12));
     root.addView(status);
     navigation = new LinearLayout(this);
     previous = button(navigation, "Previous", v -> showPage(page - 1));
@@ -73,9 +88,34 @@ public final class HistoryActivity extends Activity {
     b.setText(title);
     b.setTextSize(14);
     b.setAllCaps(false);
+    b.setMinHeight(0);
+    b.setMinimumHeight(0);
+    b.setPadding(dp(4), dp(2), dp(4), dp(2));
     b.setOnClickListener(action);
-    parent.addView(b, new LinearLayout.LayoutParams(0, -2, 1));
+    parent.addView(b, new LinearLayout.LayoutParams(0, dp(42), 1));
     return b;
+  }
+
+  int dp(int value) {
+    return Math.round(value * getResources().getDisplayMetrics().density);
+  }
+
+  void showMore() {
+    String[] items =
+        image == null
+            ? new String[] {"Refresh history", "Back to inbox"}
+            : new String[] {"Fit page", "Fit width", "Refresh history", "Back to inbox"};
+    new android.app.AlertDialog.Builder(this)
+        .setTitle("More")
+        .setItems(
+            items,
+            (d, index) -> {
+              String action = items[index];
+              if (action.equals("Refresh history")) sync();
+              else if (action.equals("Back to inbox")) finish();
+              else if (image != null) image.fit(action.equals("Fit width"));
+            })
+        .show();
   }
 
   void ui(Runnable task) {
@@ -90,26 +130,63 @@ public final class HistoryActivity extends Activity {
     releaseImage();
     content.removeAllViews();
     navigation.setVisibility(View.GONE);
+    back.setText("Inbox");
+    heading.setText("Sent history");
+    subtitle.setText("Read-only copies · Available offline for 90 days");
     status.setText("Loading cached history…");
     localReader.execute(
         () -> {
           try {
             List<HistoryCache.Entry> entries = cache.list(System.currentTimeMillis());
-            ArrayList<String> titles = new ArrayList<>();
-            for (HistoryCache.Entry entry : entries)
-              titles.add(
-                  entry.title
-                      + "\n"
-                      + entry.submittedAt.substring(0, 10)
-                      + " • "
-                      + entry.pageCount
-                      + " pages");
             ui(
                 () -> {
                   if (generation != viewGeneration || selectedId != null) return;
                   ListView list = new ListView(this);
+                  list.setBackgroundColor(Color.WHITE);
+                  list.setDivider(new android.graphics.drawable.ColorDrawable(Color.LTGRAY));
+                  list.setDividerHeight(dp(1));
+                  list.setPadding(dp(20), 0, dp(20), 0);
                   list.setAdapter(
-                      new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, titles));
+                      new BaseAdapter() {
+                        public int getCount() {
+                          return entries.size();
+                        }
+
+                        public Object getItem(int position) {
+                          return entries.get(position);
+                        }
+
+                        public long getItemId(int position) {
+                          return position;
+                        }
+
+                        public View getView(
+                            int position, View recycled, android.view.ViewGroup parent) {
+                          HistoryCache.Entry entry = entries.get(position);
+                          LinearLayout row = new LinearLayout(HistoryActivity.this);
+                          row.setOrientation(1);
+                          row.setPadding(dp(4), dp(22), dp(4), dp(22));
+                          row.setMinimumHeight(dp(98));
+                          TextView title = new TextView(HistoryActivity.this);
+                          title.setText(entry.title);
+                          title.setTextSize(21);
+                          title.setTextColor(Color.BLACK);
+                          title.setTypeface(null, Typeface.BOLD);
+                          title.setMaxLines(3);
+                          row.addView(title);
+                          TextView detail = new TextView(HistoryActivity.this);
+                          detail.setText(
+                              entry.submittedAt.substring(0, 10)
+                                  + "   ·   "
+                                  + entry.pageCount
+                                  + (entry.pageCount == 1 ? " page" : " pages"));
+                          detail.setTextSize(15);
+                          detail.setTextColor(Color.DKGRAY);
+                          detail.setPadding(0, dp(8), 0, 0);
+                          row.addView(detail);
+                          return row;
+                        }
+                      });
                   list.setOnItemClickListener(
                       (p, v, pos, id) -> {
                         selectedId = entries.get(pos).id;
@@ -119,8 +196,8 @@ public final class HistoryActivity extends Activity {
                   content.addView(list, new LinearLayout.LayoutParams(-1, -1));
                   status.setText(
                       entries.isEmpty()
-                          ? "No cached sent documents. Refresh when connected."
-                          : "Sent documents • available offline for 90 days");
+                          ? "No sent documents yet. Refresh when connected."
+                          : entries.size() + " documents · Tap to open");
                 });
           } catch (Exception error) {
             ui(
@@ -170,7 +247,11 @@ public final class HistoryActivity extends Activity {
                   previous.setEnabled(page > 1);
                   next.setEnabled(page < entry.pageCount);
                   indicator.setText("Page " + page + " / " + entry.pageCount);
-                  status.setText(entry.title + " • read-only");
+                  back.setText("History");
+                  heading.setText(entry.title);
+                  heading.setMaxLines(2);
+                  subtitle.setText(entry.submittedAt.substring(0, 10) + " · Read-only");
+                  status.setText("Pinch to zoom · More for page fit");
                 });
           } catch (Exception error) {
             ui(
@@ -343,8 +424,19 @@ public final class HistoryActivity extends Activity {
     }
 
     protected void onSizeChanged(int w, int h, int ow, int oh) {
-      scale = (float) w / bitmap.getWidth();
-      dx = dy = 0;
+      fit(false);
+    }
+
+    void fit(boolean width) {
+      if (getWidth() == 0 || getHeight() == 0) return;
+      scale =
+          width
+              ? (float) getWidth() / bitmap.getWidth()
+              : Math.min(
+                  (float) getWidth() / bitmap.getWidth(), (float) getHeight() / bitmap.getHeight());
+      dx = (getWidth() - bitmap.getWidth() * scale) / 2;
+      dy = 0;
+      invalidate();
     }
 
     protected void onDraw(Canvas canvas) {

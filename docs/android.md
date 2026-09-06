@@ -73,3 +73,11 @@ Toolbar now has Documents, Undo, Send and More. More contains Fit page, Fit widt
 Documents lists pending reviews and opens any entry. Each review has its own draft and frozen-submission file; draft.json identifies the last active review. Startup prefers that review's authoritative snapshot to recover a crash between snapshot and active-pointer writes. Legacy frozen payload migration preserves exact bytes. Targets are staged and validated before server activation; a failed or uncertain switch keeps outgoing local draft. Retry an unconfirmed Send before switching. Completing or discarding removes only that review's files.
 
 DraftFilesTest covers snapshot isolation, interrupted active-pointer writes, frozen migration, cleanup confinement and staged-target isolation. Physical isolated switching restored page two and synthetic ink after restart. Production installed with existing drafts intact and fresh review selected through Documents.
+
+## Empty inbox and notifications 0.8.0
+
+With no local draft and confirmed empty queue, editor shows Empty inbox plus Documents and Sent history actions. Successful Send/discard clears completed bitmap; failed draft cleanup preserves the current review. Connection uncertainty displays a checking/offline message without treating it as an empty queue.
+
+Default fit now uses source width without the extra256-pixel bottom frame. Zoom-out still exposes writable expanded bounds. History uses large titles, separate date/page-count metadata, row dividers and Inbox/More navigation.
+
+ReviewNotificationService starts for a paired app by default. It polls queue every15seconds, backing off to5minutes after network errors. Per-token persisted seen IDs suppress repeated alerts. A low-importance foreground notification keeps the listener running, and new reviews use a separate default-importance channel. More toggles alerts; Stop/Pause persists disabled state. Tapping an alert opens Documents when safe, never activating or replacing a draft. Device-off, force-stop, Doze or BOOX power restrictions can delay delivery. Seen IDs commit before notify, so a crash in that gap can miss an alert; delivery is best-effort. No root, wake lock or battery-policy bypass.

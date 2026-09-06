@@ -67,6 +67,7 @@ export class Store {
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
+    this.advanceQueue();
     return this;
   }
   async history(now = Date.now()) {
@@ -142,7 +143,7 @@ export class Store {
   advanceQueue() {
     if (this.state.reviews[this.state.current]?.status === "pending") return;
     const next = this.pendingQueue()[0];
-    if (next) this.state.current = next.id;
+    this.state.current = next?.id ?? null;
   }
   activate(id, expectedCurrentReviewId) {
     return this.mutate(() => {
@@ -165,7 +166,7 @@ export class Store {
   }
   current() {
     const review = this.state.reviews[this.state.current];
-    return review ? this.metadata(review) : null;
+    return review?.status === "pending" ? this.metadata(review) : null;
   }
   validateSource(source) {
     if (source !== undefined) {

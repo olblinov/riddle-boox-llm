@@ -60,3 +60,5 @@ Feedback retrieval returns `pages` with composites, strokes, notes and server-ow
 GET /api/queue lists pending review metadata and positions. GET /api/feedback-inbox lists unread submitted review IDs, source and optional originating task/workspace. POST /api/reviews/:id/acknowledge requires the exact submissionId and marks it read without deleting history. Reading feedback alone does not acknowledge it. No supported idle-desktop wake connection is currently available.
 
 POST /api/reviews/:id/activate requires expectedCurrentReviewId, either the last observed active ID or null when none. Only pending reviews can activate. Stale switching returns409; retrying the already active target succeeds. Activation never deletes or submits a review. Queue positions retain insertion order; activeReviewId identifies selection.
+
+When no pending review remains, GET /api/reviews/current returns {review:null} and /api/queue returns an empty list. Startup normalizes terminal current pointers from earlier releases; submitted history remains retrievable.

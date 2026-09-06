@@ -18,9 +18,10 @@ public class MainActivity extends Activity {
   InkView ink;
   BooxInk nativeInk;
   WifiDiscovery wifiDiscovery;
-  boolean dialogOpen;
-  TextView status;
-  Button send, previous, next;
+  boolean dialogOpen, notificationDocumentsPending;
+  TextView status, inboxTitle, inboxHelp;
+  LinearLayout emptyInbox, navigation;
+  Button send, previous, next, undo;
   TextView pageIndicator;
   final ArrayList<PageState> pages = new ArrayList<>();
   int pagePosition = 0;
@@ -36,6 +37,7 @@ public class MainActivity extends Activity {
       new Runnable() {
         public void run() {
           if (!stopped) {
+            maybeOpenNotificationDocuments();
             if (!busy && !dialogOpen && !base.isEmpty() && System.currentTimeMillis() >= nextPoll)
               fetch();
             handler.postDelayed(this, 2000);
@@ -58,17 +60,18 @@ public class MainActivity extends Activity {
     root.addView(status);
     LinearLayout bar = new LinearLayout(this);
     button(bar, "Documents", v -> showQueue());
-    button(
-        bar,
-        "Undo",
-        v -> {
-          if (!busy) ink.undo();
-        });
+    undo =
+        button(
+            bar,
+            "Undo",
+            v -> {
+              if (!busy) ink.undo();
+            });
     send = button(bar, "Send", v -> submit());
     send.setEnabled(false);
     button(bar, "More", v -> showMore());
     root.addView(bar);
-    LinearLayout navigation = new LinearLayout(this);
+    navigation = new LinearLayout(this);
     previous = button(navigation, "Previous", v -> navigate(-1));
     pageIndicator = new TextView(this);
     pageIndicator.setTextSize(15);
@@ -78,11 +81,59 @@ public class MainActivity extends Activity {
     root.addView(navigation);
     ink = new InkView(this);
     nativeInk = new BooxInk(this, ink);
-    root.addView(ink, new LinearLayout.LayoutParams(-1, 0, 1));
+    FrameLayout canvasArea = new FrameLayout(this);
+    canvasArea.addView(ink, new FrameLayout.LayoutParams(-1, -1));
+    emptyInbox = new LinearLayout(this);
+    emptyInbox.setOrientation(1);
+    emptyInbox.setGravity(Gravity.CENTER);
+    emptyInbox.setPadding(48, 32, 48, 32);
+    emptyInbox.setBackgroundColor(Color.WHITE);
+    inboxTitle = new TextView(this);
+    inboxTitle.setTextSize(30);
+    inboxTitle.setTypeface(null, Typeface.BOLD);
+    inboxTitle.setTextColor(Color.BLACK);
+    inboxTitle.setGravity(Gravity.CENTER);
+    inboxHelp = new TextView(this);
+    inboxHelp.setTextSize(18);
+    inboxHelp.setTextColor(Color.DKGRAY);
+    inboxHelp.setGravity(Gravity.CENTER);
+    inboxHelp.setPadding(0, 20, 0, 32);
+    emptyInbox.addView(inboxTitle);
+    emptyInbox.addView(inboxHelp);
+    LinearLayout inboxActions = new LinearLayout(this);
+    button(inboxActions, "Documents", v -> showQueue());
+    button(inboxActions, "Sent history", v -> openHistory());
+    emptyInbox.addView(inboxActions, new LinearLayout.LayoutParams(-1, -2));
+    canvasArea.addView(emptyInbox, new FrameLayout.LayoutParams(-1, -1));
+    root.addView(canvasArea, new LinearLayout.LayoutParams(-1, 0, 1));
+    showInbox("Inbox", "Connect to your desktop to receive documents.");
     setContentView(root);
     restore();
     updateNavigation();
+    notificationDocumentsPending = getIntent().getBooleanExtra("open_documents", false);
+    getIntent().removeExtra("open_documents");
     if (base.isEmpty()) pair();
+    else ReviewNotificationService.start(this);
+  }
+
+  protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    setIntent(intent);
+    notificationDocumentsPending = intent.getBooleanExtra("open_documents", false);
+    intent.removeExtra("open_documents");
+    maybeOpenNotificationDocuments();
+  }
+
+  void maybeOpenNotificationDocuments() {
+    if (notificationDocumentsPending
+        && !base.isEmpty()
+        && !busy
+        && !dialogOpen
+        && !penActive()
+        && !stopped) {
+      notificationDocumentsPending = false;
+      showQueue();
+    }
   }
 
   Button button(LinearLayout bar, String label, View.OnClickListener action) {
@@ -187,10 +238,33 @@ public class MainActivity extends Activity {
         });
   }
 
+  void showInbox(String heading, String help) {
+    if (!reviewId.isEmpty()) return;
+    nativeInk.suspend();
+    inboxTitle.setText(heading);
+    inboxHelp.setText(help);
+    emptyInbox.setVisibility(View.VISIBLE);
+    ink.setVisibility(View.GONE);
+  }
+
+  void openHistory() {
+    if (busy || penActive()) return;
+    nativeInk.suspend();
+    if (save()) startActivity(new Intent(this, HistoryActivity.class));
+    else ink.post(() -> nativeInk.refresh());
+  }
+
   void showMore() {
     if (busy || penActive()) return;
     String[] actions = {
-      "Fit page", "Fit width", "Submitted history", "Connect desktop", "Clear annotations"
+      "Fit page",
+      "Fit width",
+      "Submitted history",
+      "Connect desktop",
+      "Clear annotations",
+      ReviewNotificationService.isEnabled(this)
+          ? "Pause review notifications"
+          : "Enable review notifications"
     };
     dialogBuilder()
         .setTitle("More")
@@ -207,7 +281,14 @@ public class MainActivity extends Activity {
                       if (save()) startActivity(new Intent(this, HistoryActivity.class));
                       else ink.post(() -> nativeInk.refresh());
                     } else if (which == 3) pair();
-                    else
+                    else if (which == 5) {
+                      ReviewNotificationService.setEnabled(
+                          this, !ReviewNotificationService.isEnabled(this));
+                      status.setText(
+                          ReviewNotificationService.isEnabled(this)
+                              ? "Review notifications enabled"
+                              : "Review notifications paused");
+                    } else
                       dialogBuilder()
                           .setMessage("Clear your annotations?")
                           .setPositiveButton("Clear", (d, w) -> ink.clear())
@@ -539,6 +620,7 @@ public class MainActivity extends Activity {
                                   .putString("token", token)
                                   .apply();
                               nextPoll = 0;
+                              ReviewNotificationService.start(MainActivity.this);
                               status.setText("Desktop connected");
                             });
                       } catch (Exception error) {
@@ -631,7 +713,13 @@ public class MainActivity extends Activity {
             if (r == null) {
               updateUi(
                   () -> {
-                    if (reviewId.isEmpty()) status.setText("Connected. Waiting for Codex page");
+                    if (reviewId.isEmpty()) {
+                      status.setText("Connected to desktop");
+                      showInbox(
+                          "Empty inbox",
+                          "All documents handled. New documents from Codex will appear here.\n\n"
+                              + "Your sent pages remain in History.");
+                    }
                   });
               return;
             }
@@ -680,7 +768,7 @@ public class MainActivity extends Activity {
             request("/api/reviews/" + reviewId + "/cancel", new JSONObject());
             updateUi(
                 () -> {
-                  clearReviewFiles();
+                  if (!clearReviewFiles()) return;
                   ink.page = null;
                   ink.strokes.clear();
                   ink.invalidate();
@@ -712,6 +800,8 @@ public class MainActivity extends Activity {
     next.setEnabled(hasReview && pagePosition + 1 < pages.size() && !busy);
     pageIndicator.setText(
         hasReview ? "Page " + (pagePosition + 1) + " / " + pages.size() : "No document");
+    navigation.setVisibility(hasReview ? View.VISIBLE : View.GONE);
+    undo.setEnabled(hasReview && !busy && !submissionAttempted);
     send.setText("Send");
     send.setEnabled(hasReview && !busy && (submissionAttempted || allVisited));
   }
@@ -732,6 +822,8 @@ public class MainActivity extends Activity {
               ? CanvasBounds.around(bitmap.getWidth(), bitmap.getHeight())
               : new CanvasBounds(0, 0, bitmap.getWidth(), bitmap.getHeight());
     state.bounds.validate(bitmap.getWidth(), bitmap.getHeight());
+    emptyInbox.setVisibility(View.GONE);
+    ink.setVisibility(View.VISIBLE);
     ink.bounds = state.bounds;
     ink.setPage(bitmap);
     ink.load(state.strokes);
@@ -756,19 +848,32 @@ public class MainActivity extends Activity {
     updateNavigation();
   }
 
-  void clearReviewFiles() {
+  boolean clearReviewFiles() {
     try {
       drafts().clear(reviewId);
     } catch (IOException error) {
       status.setText(error.getMessage());
-      return;
+      return false;
     }
     for (PageState page : pages) deleteFile(page.file);
     reviewId = "";
     submissionId = "";
     pages.clear();
     pagePosition = 0;
+    submissionAttempted = false;
+    documentReview = false;
+    nativeInk.suspend();
+    Bitmap completed = ink.page;
+    ink.page = null;
+    ink.strokes.clear();
+    ink.active = null;
+    ink.locked = true;
+    ink.invalidate();
+    if (completed != null) completed.recycle();
+    nextPoll = 0;
+    showInbox("Checking inbox…", "Your document is saved. Looking for the next review.");
     updateNavigation();
+    return true;
   }
 
   void submit() {
@@ -885,7 +990,7 @@ public class MainActivity extends Activity {
             }
             updateUi(
                 () -> {
-                  clearReviewFiles();
+                  if (!clearReviewFiles()) return;
                   status.setText("Document sent to Codex. Waiting for next review");
                   ink.locked = true;
                   nativeInk.suspend();
@@ -1096,19 +1201,16 @@ public class MainActivity extends Activity {
       page = b;
       strokes.clear();
       locked = false;
-      post(() -> fit());
+      post(() -> fitWidth());
     }
 
     void fit() {
       if (penActive()) return;
       if (nativeInk != null) nativeInk.suspend();
       if (page != null && getWidth() > 0) {
-        float bottomMargin = Math.min(256, bounds.y + bounds.height - page.getHeight());
         scale =
-            Math.min(
-                (float) getWidth() / page.getWidth(),
-                (float) getHeight() / (page.getHeight() + bottomMargin));
-        defaultScale = scale;
+            Math.min((float) getWidth() / page.getWidth(), (float) getHeight() / page.getHeight());
+
         dx = (getWidth() - page.getWidth() * scale) / 2;
         dy = 0;
         invalidate();
@@ -1120,13 +1222,14 @@ public class MainActivity extends Activity {
       if (page == null || penActive()) return;
       nativeInk.suspend();
       scale = (float) getWidth() / page.getWidth();
+      defaultScale = scale;
       dx = dy = 0;
       invalidate();
       postOnAnimation(() -> post(() -> nativeInk.refresh()));
     }
 
     protected void onSizeChanged(int w, int h, int ow, int oh) {
-      fit();
+      fitWidth();
     }
 
     protected void onDraw(Canvas c) {

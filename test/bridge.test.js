@@ -121,7 +121,7 @@ test("authenticated lifecycle, duplicate and stale submission, persistence", asy
   const restored = await createBridge({ directory: f.directory });
   assert.equal(restored.store.token, f.store.token);
   assert.equal(restored.store.feedback(id).note, "Move here");
-  assert.equal(restored.store.current().status, "cancelled");
+  assert.equal(restored.store.current(), null);
 });
 test("image and stroke validation rejects malformed input", async (t) => {
   const f = await fixture(t);
@@ -617,4 +617,19 @@ test("queue selection preserves drafts, resists stale switches, and survives enq
  const restored=await createBridge({directory:f.directory});restored.server.emit("close");
  assert.equal(restored.store.current().id,a.id);
  assert.equal(restored.store.get(c.id).status,"pending");
+});
+
+
+test("last review submission and cancellation leave a persistent empty inbox", async (t) => {
+ const f=await fixture(t);const a=(await f.api("/api/reviews",f.page)).body;
+ await f.api(`/api/reviews/${a.id}/feedback`,f.feedback);
+ assert.equal((await f.api("/api/reviews/current")).body.review,null);
+ assert.deepEqual((await f.api("/api/queue")).body,{activeReviewId:null,reviews:[]});
+ assert.equal((await f.api(`/api/reviews/${a.id}/feedback`)).body.status,"submitted");
+ const b=(await f.api("/api/reviews",f.page)).body;
+ await f.api(`/api/reviews/${b.id}/cancel`,{});
+ assert.equal(f.store.current(),null);
+ const restored=await createBridge({directory:f.directory});restored.server.emit("close");
+ assert.equal(restored.store.current(),null);
+ assert.equal(restored.store.get(a.id).status,"submitted");
 });

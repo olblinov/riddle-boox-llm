@@ -79,3 +79,11 @@ Automatic idle-task wake is unavailable in this desktop's supported connection; 
 On physical BOOX, isolated test selected a three-page queued document, moved to page two, restored a seeded synthetic stroke from its authoritative snapshot after force-stop, switched to another document and back, and preserved page two plus the stroke. This is storage/selection QA, not new user handwriting.
 
 Production version 0.7.0/code7, APK SHA-256 6099048abeeec774322c12e1c924292cadaa2eac8c5f915d6877267b2a65fc53, installed preserving pairing and drafts. Documents displayed all three pending reviews. Fresh review opened directly at page 1/3. Toolbar showed Documents/Undo/Send/More, with all five secondary actions in More. Server review records remained byte-equivalent as JSON data; only active selection changed. Isolated app/bridge removed afterward.
+
+## Empty inbox, History and alerts 0.8.0
+
+29 Node tests and four Android JVM regression suites pass. Bounded independent audits cover empty-state gating, draft preservation, History lifecycle and notification service. All nine newly submitted pages were inspected, archived and acknowledged by exact submission IDs. Notes requested view-padding adjustment and Android alerts; no sample-schedule edits.
+
+Physical isolated BOOX showed Empty inbox with no queue; History screenshot verified large titles, separate date/page metadata and clear row dividers. While the test app was backgrounded, adding a review posted Android review_ready notification 7102 and ongoing watcher 7101. Sending that final review cleared its bitmap and settled to Empty inbox. Pausing notifications persisted across force-stop/reopen, with More showing Enable review notifications.
+
+Production 0.8.0/code 8 APK SHA-256 73721aac1de8d0d042ad07a0c32573b458a4f29fd17360e4956da7ec799777b3 installed. Production Empty inbox displayed; both History entry points opened all eight retained submissions and bridge state stayed unchanged. Test app/server removed. No new production review was queued, leaving inbox empty.

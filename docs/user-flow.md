@@ -14,7 +14,7 @@ Use Previous and Next, or swipe left/right with one finger in Page view, to brow
 
 Example: circle "30 days" and write "90 days" beside it. For a diagram, cross out a connection and draw the replacement.
 
-Pen draws. More > Fit page view shows the page and bottom writing space. Fingers pan and zoom; when zoomed in, horizontal movement pans. More > Fit width restores full-width detail. Zoom out to add notes beyond the original page edges within the surrounding writing area. These notes are included when you send. Undo removes your latest stroke. Each page keeps its own ink when you move between pages.
+Pen draws. Default view uses the source page width without extra canvas framing. Fingers pan and zoom; when zoomed in, horizontal movement pans. More > Fit width restores full-width detail. Zoom out to add notes beyond the original page edges within the surrounding writing area. These notes are included when you send. Undo removes your latest stroke. Each page keeps its own ink when you move between pages.
 
 ## 3. Send the whole document
 
@@ -53,6 +53,12 @@ The MCP connection returns these images to the waiting Codex task. Technically t
 Codex inspects every returned page, including drawings and spatial references. It checks whether the source changed since rendering, then reconciles your instructions with that source. Ambiguous marks need clarification; blank pages mean no page-specific comments.
 
 The tablet runs no LLM and needs no model key. Review files pass through your Mac; annotated images enter the Codex model conversation when feedback is collected. Pairing uses a token. Wi-Fi bridge traffic currently uses unencrypted HTTP.
+
+## Empty inbox and notifications
+
+After the final queued document is sent or discarded, Empty inbox replaces the editor. Submitted copies remain in History. Empty inbox means no pending tablet review, not that Codex has already processed every submission.
+
+New review notifications are available while the background listener runs and the tablet can reach the Mac. More lets you pause or enable the listener. Notifications open Documents without replacing an unfinished draft. A powered-off tablet, force-stopped app, or BOOX battery restrictions can delay alerts until the app runs again.
 
 ## Reopen a sent document
 

@@ -66,3 +66,9 @@ Wi-Fi-first pairing discovers the Mac via Bonjour _boox-review._tcp and authenti
 Documents lists pending reviews and opens any selected entry. Selection saves the outgoing local draft and restores the incoming document's ink and page position. POST /api/reviews/:id/activate compares expectedCurrentReviewId to avoid stale client switches; retrying an already active target is harmless. Adding documents never overrides a selected pending document. Completing it falls back to FIFO among remaining entries.
 
 Toolbar exposes Documents, Undo, Send and More. Less frequent controls move under More; page navigation stays below. Unconfirmed Send must be retried before switching so an uncertain submission cannot become inaccessible.
+
+## Empty inbox and reading surfaces 0.8
+
+Current-review API returns null when no pending document remains, including migration from old terminal pointers. Submitted/cancelled records remain retrievable by ID. Tablet removes completed page from editor and presents Empty inbox without implying the LLM already processed feedback.
+
+Default editor view uses source width without extra canvas framing; zoom-out reveals writable outside-page area. History uses clear document titles and separate date/page metadata, with offline availability and retention visible.
