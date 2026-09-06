@@ -81,3 +81,7 @@ With no local draft and confirmed empty queue, editor shows Empty inbox plus Doc
 Default fit now uses source width without the extra256-pixel bottom frame. Zoom-out still exposes writable expanded bounds. History uses large titles, separate date/page-count metadata, row dividers and Inbox/More navigation.
 
 ReviewNotificationService starts for a paired app by default. It polls queue every15seconds, backing off to5minutes after network errors. Per-token persisted seen IDs suppress repeated alerts. A low-importance foreground notification keeps the listener running, and new reviews use a separate default-importance channel. More toggles alerts; Stop/Pause persists disabled state. Tapping an alert opens Documents when safe, never activating or replacing a draft. Device-off, force-stop, Doze or BOOX power restrictions can delay delivery. Seen IDs commit before notify, so a crash in that gap can miss an alert; delivery is best-effort. No root, wake lock or battery-policy bypass.
+
+## Default page fit 0.8.1
+
+Opening or restoring a document, Previous/Next, swipe navigation and viewport size changes use Fit page. Fit width remains available under More. Swipe eligibility uses the fitted-page scale as its baseline, so page swipes work at the new default. Ink and expanded writing bounds are unchanged.

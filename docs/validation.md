@@ -87,3 +87,7 @@ Production version 0.7.0/code7, APK SHA-256 6099048abeeec774322c12e1c924292cadaa
 Physical isolated BOOX showed Empty inbox with no queue; History screenshot verified large titles, separate date/page metadata and clear row dividers. While the test app was backgrounded, adding a review posted Android review_ready notification 7102 and ongoing watcher 7101. Sending that final review cleared its bitmap and settled to Empty inbox. Pausing notifications persisted across force-stop/reopen, with More showing Enable review notifications.
 
 Production 0.8.0/code 8 APK SHA-256 73721aac1de8d0d042ad07a0c32573b458a4f29fd17360e4956da7ec799777b3 installed. Production Empty inbox displayed; both History entry points opened all eight retained submissions and bridge state stayed unchanged. Test app/server removed. No new production review was queued, leaving inbox empty.
+
+## Fit page default 0.8.1
+
+Android build and APK signature verification passed; CanvasGestureTest passed. Installed code 9 on BOOX preserving current document and annotations. Next moved page 2 to 3; Previous returned to page 2. Screenshot confirmed complete source page, including footer, visible at default fit with existing ink retained. APK SHA-256: 8a26c55ed0e9bab5d28b99d8c68124cf0bcafb0c124325883c91f316e46c8a06.

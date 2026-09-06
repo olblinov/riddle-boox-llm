@@ -14,7 +14,7 @@ Use Previous and Next, or swipe left/right with one finger in Page view, to brow
 
 Example: circle "30 days" and write "90 days" beside it. For a diagram, cross out a connection and draw the replacement.
 
-Pen draws. Default view uses the source page width without extra canvas framing. Fingers pan and zoom; when zoomed in, horizontal movement pans. More > Fit width restores full-width detail. Zoom out to add notes beyond the original page edges within the surrounding writing area. These notes are included when you send. Undo removes your latest stroke. Each page keeps its own ink when you move between pages.
+Pen draws. Opening a document and changing pages uses Fit page, showing the whole source page. Manual zoom lasts until the next page change. Fingers pan and zoom; when zoomed in, horizontal movement pans. More > Fit width restores full-width detail. Zoom out to add notes beyond the original page edges within the surrounding writing area. These notes are included when you send. Undo removes your latest stroke. Each page keeps its own ink when you move between pages.
 
 ## 3. Send the whole document
 

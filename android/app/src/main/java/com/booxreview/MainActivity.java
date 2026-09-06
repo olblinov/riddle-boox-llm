@@ -1201,7 +1201,7 @@ public class MainActivity extends Activity {
       page = b;
       strokes.clear();
       locked = false;
-      post(() -> fitWidth());
+      post(() -> fit());
     }
 
     void fit() {
@@ -1211,6 +1211,7 @@ public class MainActivity extends Activity {
         scale =
             Math.min((float) getWidth() / page.getWidth(), (float) getHeight() / page.getHeight());
 
+        defaultScale = scale;
         dx = (getWidth() - page.getWidth() * scale) / 2;
         dy = 0;
         invalidate();
@@ -1222,14 +1223,13 @@ public class MainActivity extends Activity {
       if (page == null || penActive()) return;
       nativeInk.suspend();
       scale = (float) getWidth() / page.getWidth();
-      defaultScale = scale;
       dx = dy = 0;
       invalidate();
       postOnAnimation(() -> post(() -> nativeInk.refresh()));
     }
 
     protected void onSizeChanged(int w, int h, int ow, int oh) {
-      fitWidth();
+      fit();
     }
 
     protected void onDraw(Canvas c) {
