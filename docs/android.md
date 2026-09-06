@@ -85,3 +85,9 @@ ReviewNotificationService starts for a paired app by default. It polls queue eve
 ## Default page fit 0.8.1
 
 Opening or restoring a document, Previous/Next, swipe navigation and viewport size changes use Fit page. Fit width remains available under More. Swipe eligibility uses the fitted-page scale as its baseline, so page swipes work at the new default. Ink and expanded writing bounds are unchanged.
+
+## Queue removal and retained ink 0.9.0
+
+Documents offers Remove for each pending item. Confirmation cancels the exact review through the existing endpoint. Removing another item preserves the active draft; removing the current item uses the existing discard flow. Unconfirmed submissions block removal. Cancellation preserves server records and is separate from submitted History.
+
+Native pen-up now schedules a retained Canvas redraw after 220 ms idle. A revision gate rejects repaint callbacks from older strokes and waits two animation boundaries before requesting BOOX handwriting repaint. Raw input remains enabled during rapid writing. This addresses the missing retained redraw found during investigation; physical handwriting must confirm the intermittent symptom is resolved.

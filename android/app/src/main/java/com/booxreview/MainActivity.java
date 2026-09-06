@@ -353,7 +353,17 @@ public class MainActivity extends Activity {
                           dialog.dismiss();
                           selectDocument(id, expected);
                         });
-                    content.addView(item, new LinearLayout.LayoutParams(-1, -2));
+                    LinearLayout row = new LinearLayout(this);
+                    row.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
+                    Button remove = new Button(this);
+                    remove.setAllCaps(false);
+                    remove.setText("Remove");
+                    remove.setOnClickListener(v -> {
+                      dialog.dismiss();
+                      handler.post(() -> confirmRemove(id, review.optString("title", "Untitled")));
+                    });
+                    row.addView(remove, new LinearLayout.LayoutParams(-2, -2));
+                    content.addView(row, new LinearLayout.LayoutParams(-1, -2));
                   }
                 });
           } catch (Exception error) {
@@ -369,6 +379,45 @@ public class MainActivity extends Activity {
                 });
           }
         });
+  }
+
+  void confirmRemove(String id, String title) {
+    if (busy || penActive() || restoreFailed) return;
+    if (submissionAttempted || drafts().frozen(id).exists()) {
+      status.setText("Retry Send before removing this document");
+      return;
+    }
+    dialogBuilder()
+        .setTitle("Remove document?")
+        .setMessage("Remove \"" + title + "\" from the review queue? This cancels its review without submitting comments.")
+        .setNegativeButton("Keep", null)
+        .setPositiveButton("Remove", (d, w) -> handler.post(() -> removeQueuedDocument(id)))
+        .show();
+  }
+
+  void removeQueuedDocument(String id) {
+    if (busy || penActive() || restoreFailed || submissionAttempted) return;
+    if (id.equals(reviewId)) {
+      discard();
+      return;
+    }
+    if (!save()) return;
+    busy = true;
+    updateNavigation();
+    worker.execute(() -> {
+      try {
+        request("/api/reviews/" + id + "/cancel", new JSONObject());
+        updateUi(() -> status.setText("Document removed from queue"));
+      } catch (Exception error) {
+        updateUi(() -> status.setText("Cannot remove document. " + error.getMessage()));
+      } finally {
+        updateUi(() -> {
+          busy = false;
+          updateNavigation();
+          if (!stopped) showQueue();
+        });
+      }
+    });
   }
 
   void selectDocument(String id, String expectedCurrent) {

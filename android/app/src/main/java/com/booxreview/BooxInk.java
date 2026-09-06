@@ -23,7 +23,8 @@ final class BooxInk {
   private volatile boolean enabled;
   private volatile boolean capabilityReady, observedRawCallbacks;
   private boolean screenOff;
-  private boolean backingRepaintPending;
+  private final InkRepaintGate repaint = new InkRepaintGate();
+  private static final long SETTLE_MS = 220;
   private volatile boolean drawing;
   private final RawStrokeBuffer buffer = new RawStrokeBuffer();
   private float strokeScale, strokeDx, strokeDy, maxPressure = 4096;
@@ -157,6 +158,8 @@ final class BooxInk {
       // Preserve a partially received stroke if focus disappears before pen-up.
       if (drawing) commit();
       flush();
+      // Raw pixels are transient. Any later page/dialog frame must include saved ink.
+      view.invalidate();
     } catch (Throwable error) {
       fail(error);
     }
@@ -233,6 +236,7 @@ final class BooxInk {
     }
     if (drawing) commit();
     drawing = true;
+    repaint.begin();
     strokeScale = view.scale;
     strokeDx = view.dx;
     strokeDy = view.dy;
@@ -266,6 +270,7 @@ final class BooxInk {
     if (!drawing) return;
     buffer.finish();
     drawing = false;
+    repaint.end();
     activity.updateUi(this::flush);
   }
 
@@ -275,11 +280,10 @@ final class BooxInk {
       return;
     }
     RawStrokeBuffer.Stroke captured;
-    boolean changed = false, erased = false;
+    boolean changed = false;
     while ((captured = buffer.poll()) != null) {
       final RawStrokeBuffer.Stroke result = captured;
       if (result.erase) {
-        erased = true;
         float radius = 22f / result.scale;
         view.strokes.removeIf(
             stroke -> {
@@ -302,35 +306,43 @@ final class BooxInk {
     }
     if (!changed) return;
     activity.queueDraftSave();
-    // Raw plane already contains these pixels. Keep its input active across rapid strokes.
-    // Explicit navigation/undo/dialog/zoom suspends it and redraws this retained model.
-    if (erased) backingRepaintPending = true;
-    if (backingRepaintPending || !enabled) view.invalidate();
+    // Preserve fast raw drawing while words are being written, then copy all completed
+    // strokes into the retained Android frame. Raw pixels alone do not survive a refresh.
+    final long revision = repaint.changed();
+    if (!enabled) view.invalidate();
+    view.postDelayed(
+        () -> {
+          if (repaint.ready(revision) && !drawing && !closed) view.invalidate();
+        },
+        SETTLE_MS);
   }
 
   void onBackingDrawn() {
-    if (!backingRepaintPending || drawing || helper == null) return;
-    // Wait until the retained Canvas frame has finished before requesting panel repaint.
-    view.postOnAnimation(
-        () -> {
-          if (!backingRepaintPending
-              || drawing
-              || helper == null
-              || closed
-              || !enabled
-              || activity.stopped
-              || !activity.hasWindowFocus()
-              || activity.dialogOpen
-              || panelOpen
-              || screenOff) return;
-          try {
-            EpdController.handwritingRepaint(
-                view, new Rect(0, 0, view.getWidth(), view.getHeight()));
-            backingRepaintPending = false;
-          } catch (Throwable error) {
-            fail(error);
-          }
-        });
+    final long revision = repaint.revision();
+    if (!repaint.ready(revision) || drawing || buffer.hasPending() || helper == null) return;
+    // Two animation boundaries let this Canvas frame reach the compositor before the
+    // vendor copies it to the e-ink plane. A new stroke invalidates this frame's ticket.
+    view.postOnAnimation(() -> view.postOnAnimation(() -> finishRepaint(revision)));
+  }
+
+  private synchronized void finishRepaint(long revision) {
+    if (!repaint.ready(revision)
+        || buffer.hasPending()
+        || drawing
+        || helper == null
+        || closed
+        || !enabled
+        || activity.stopped
+        || !activity.hasWindowFocus()
+        || activity.dialogOpen
+        || panelOpen
+        || screenOff) return;
+    try {
+      EpdController.handwritingRepaint(view, new Rect(0, 0, view.getWidth(), view.getHeight()));
+      repaint.completed(revision);
+    } catch (Throwable error) {
+      fail(error);
+    }
   }
 
   private final RawInputCallback callback =

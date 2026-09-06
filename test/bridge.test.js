@@ -175,7 +175,7 @@ test("MCP returns bounded pending result then annotated image and ink", async (t
   const start = Date.now();
   const pending = await client.callTool({
     name: "boox_wait_feedback",
-    arguments: { review_id: id, wait_seconds: 0 },
+    arguments: { review_id: id },
   });
   assert.ok(Date.now() - start < 1000);
   assert.equal(JSON.parse(pending.content[0].text).status, "pending");

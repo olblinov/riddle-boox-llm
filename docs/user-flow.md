@@ -71,3 +71,9 @@ Sent history is kept for 90 days by default. Unsent drafts are excluded from exp
 One review is active at a time; up to 100 documents can wait in the queue. Finish or discard the active document to advance. An oversized document must be split into review batches.
 
 Local Markdown raster images and Mermaid diagrams render as visible figures. Local images must stay inside the document folder. Remote images, SVG, and table-cell images remain labelled placeholders. Mermaid needs Chrome installed on the Mac. The original diagram source stays with the task for later changes.
+
+## Asynchronous review and queue removal
+
+After sending a document, Codex ends its turn without repeatedly waiting. Review whenever convenient, tap Send, then ask the originating task to review BOOX feedback. Immediate checks preserve the review if no submission has arrived. Automatic task wake is out of scope.
+
+Documents has Remove beside each pending document. Confirm to cancel that review without sending comments. This removes it from the shared queue; History remains separate. Retry any unconfirmed Send before removal.

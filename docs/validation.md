@@ -91,3 +91,9 @@ Production 0.8.0/code 8 APK SHA-256 73721aac1de8d0d042ad07a0c32573b458a4f29fd173
 ## Fit page default 0.8.1
 
 Android build and APK signature verification passed; CanvasGestureTest passed. Installed code 9 on BOOX preserving current document and annotations. Next moved page 2 to 3; Previous returned to page 2. Screenshot confirmed complete source page, including footer, visible at default fit with existing ink retained. APK SHA-256: 8a26c55ed0e9bab5d28b99d8c68124cf0bcafb0c124325883c91f316e46c8a06.
+
+## Feedback changes 0.9.0
+
+All seven routing feedback pages inspected and exact submission acknowledged. Sixteen bridge/MCP tests pass, including omitted wait_seconds returning pending immediately. InkRepaintGateTest and RawStrokeBufferTest pass; Android production/test builds and signatures verify.
+
+Physical isolated app removed a non-active queued document while preserving the active item, then removed the final active item and displayed Empty inbox. Test app and server removed. Production 0.9.0/code 10 installed preserving existing state and showing Empty inbox. APK SHA-256 e4e725cd9d98588711f39758f08f99b2ba57d86e8369999055d399c8ef9fe5b4. Real pen verification of disappearing/grey stroke symptom remains pending.

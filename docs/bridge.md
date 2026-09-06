@@ -9,7 +9,7 @@ Stdio MCP: `npm run mcp` or preferably `node /absolute/project/src/mcp.js`. Conf
 ## Tools
 
 - `boox_present`: `title`, and exactly one of `image_path`, `markdown_path`, `text`, `scene`. Markdown defaults to one whole-document review containing every rendered page. The user browses/annotates all pages and presses Send once. Explicit `markdown_page` (1-based) retains legacy single-page selection; `expected_sha256` pins the source version. Optional `width` and `height` default to 1404×1872. Returns review metadata including `id`. PNG input uses its actual dimensions. Text wraps and refuses overflow rather than silently clipping.
-- `boox_wait_feedback`: `review_id`, `wait_seconds` from 0 to 45, default 40. Returns pending/cancelled status, or submitted metadata and PNG image content. Document results include one labelled metadata block and annotated image per page, in order; base64 never appears in text blocks. Poll same ID again when pending. Pending never means consent.
+- `boox_wait_feedback`: `review_id`, `wait_seconds` from 0 to 45, default 0. Returns pending/cancelled status, or submitted metadata and PNG image content. Document results include one labelled metadata block and annotated image per page, in order; base64 never appears in text blocks. Pending checks return immediately by default. Repeat only for an explicitly requested live review session. Pending never means consent.
 - `boox_cancel`: `review_id`; cancels pending review and every page, preserving them. Submitted pages cannot be cancelled.
 - `boox_status`: bridge health, last tablet/browser current-review polling timestamp, current review. Timestamp shows a recent client poll, not proof of physical device readiness.
 

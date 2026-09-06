@@ -15,7 +15,7 @@ export function createMcp({
       "token",
     ),
 } = {}) {
-  const server = new McpServer({ name: "boox-review", version: "0.8.0" });
+  const server = new McpServer({ name: "boox-review", version: "0.9.0" });
   const request = async (endpoint, body) => {
     const token = (await readFile(tokenPath, "utf8")).trim();
     const serialized = body ? JSON.stringify(body) : undefined;
@@ -195,10 +195,10 @@ export function createMcp({
   );
   server.tool(
     "boox_wait_feedback",
-    "Wait up to 45 seconds for explicit Send on BOOX. Pending is not approval. Submitted result includes annotated PNG plus original pen strokes; use same review ID to resume waiting.",
+    "Check for explicit Send on BOOX immediately by default; optionally wait up to 45 seconds. Pending is not approval. Submitted result includes annotated PNG plus original pen strokes; use same review ID to resume waiting.",
     {
       review_id: z.string().uuid(),
-      wait_seconds: z.number().min(0).max(45).default(40),
+      wait_seconds: z.number().min(0).max(45).default(0),
     },
     safe(async ({ review_id, wait_seconds }) => {
       const deadline = Date.now() + wait_seconds * 1000;

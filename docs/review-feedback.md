@@ -24,3 +24,7 @@ Inspected all nine pages across receipt fe751d1a-1ec6-431a-b26e-bc46a0025106, gu
 Receipt: "Great! no comments." Guide: request Android notifications for new review documents. Sample: default view has too much extra canvas padding; show source without added framing, expose extra writable space when zooming out. Final sample note: "Gestures work great!" No schedule or diagram content changes requested.
 
 Typed follow-up requests Empty inbox when last queued document is handled, clearer submitted History, and commits. Implemented behavior and validation recorded with release0.8.
+
+## Routing document feedback, 2026-09-07
+
+Inspected all seven pages of review 36a92dd5-8a66-4355-a657-a2ef56d660d2, submission ff820021-28ba-4065-abd1-e7c6d9a202f1. User accepts manual continuation and shared storage; automatic wake is out of scope. Requested minimal waiting, explanation of which call waits and where the bridge lives, instructions for new tasks, queue removal, and a fix for initially missing or grey pen strokes. Page 3 contained no ink. Updated the source against its unchanged reviewed checksum and retained the original archive.
