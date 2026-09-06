@@ -96,7 +96,7 @@ export async function createBridge({
         if (req.method === "POST" && url.pathname === "/api/reviews")
           return json(201, await store.create(body));
         const match = url.pathname.match(
-          /^\/api\/reviews\/([a-f0-9-]{36})(?:\/(image|feedback|cancel|acknowledge))?$/,
+          /^\/api\/reviews\/([a-f0-9-]{36})(?:\/(image|feedback|cancel|acknowledge|activate))?$/,
         );
         if (match) {
           const [, id, operation] = match;
@@ -117,6 +117,8 @@ export async function createBridge({
             return json(200, store.feedback(id));
           if (req.method === "POST" && operation === "feedback")
             return json(200, await store.submit(id, body));
+          if (req.method === "POST" && operation === "activate")
+            return json(200, await store.activate(id, body.expectedCurrentReviewId));
           if (req.method === "POST" && operation === "acknowledge")
             return json(200, await store.acknowledgeFeedback(id, body.submissionId));
           if (req.method === "POST" && operation === "cancel")

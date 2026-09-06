@@ -36,7 +36,8 @@ public class MainActivity extends Activity {
       new Runnable() {
         public void run() {
           if (!stopped) {
-            if (!busy && !base.isEmpty() && System.currentTimeMillis() >= nextPoll) fetch();
+            if (!busy && !dialogOpen && !base.isEmpty() && System.currentTimeMillis() >= nextPoll)
+              fetch();
             handler.postDelayed(this, 2000);
           }
         }
@@ -56,42 +57,16 @@ public class MainActivity extends Activity {
     status.setText("Pair with desktop to receive a page");
     root.addView(status);
     LinearLayout bar = new LinearLayout(this);
-    button(bar, "Pair", v -> pair());
-    button(
-        bar,
-        "History",
-        v -> {
-          if (busy || penActive()) return;
-          nativeInk.suspend();
-          if (!save()) {
-            ink.post(() -> nativeInk.refresh());
-            return;
-          }
-          startActivity(new Intent(this, HistoryActivity.class));
-        });
+    button(bar, "Documents", v -> showQueue());
     button(
         bar,
         "Undo",
         v -> {
           if (!busy) ink.undo();
         });
-    button(
-        bar,
-        "Clear",
-        v -> {
-          if (!busy)
-            dialogBuilder()
-                .setMessage("Clear your annotations?")
-                .setPositiveButton("Clear", (d, w) -> ink.clear())
-                .setNeutralButton("Discard review", (d, w) -> discard())
-                .setNegativeButton("Keep", null)
-                .show();
-        });
-    button(bar, "Queue", v -> showQueue());
-    button(bar, "Page", v -> ink.fit());
-    button(bar, "Width", v -> ink.fitWidth());
     send = button(bar, "Send", v -> submit());
     send.setEnabled(false);
+    button(bar, "More", v -> showMore());
     root.addView(bar);
     LinearLayout navigation = new LinearLayout(this);
     previous = button(navigation, "Previous", v -> navigate(-1));
@@ -212,16 +187,51 @@ public class MainActivity extends Activity {
         });
   }
 
+  void showMore() {
+    if (busy || penActive()) return;
+    String[] actions = {
+      "Fit page", "Fit width", "Submitted history", "Connect desktop", "Clear annotations"
+    };
+    dialogBuilder()
+        .setTitle("More")
+        .setItems(
+            actions,
+            (dialog, which) -> {
+              dialog.dismiss();
+              handler.post(
+                  () -> {
+                    if (which == 0) ink.fit();
+                    else if (which == 1) ink.fitWidth();
+                    else if (which == 2) {
+                      nativeInk.suspend();
+                      if (save()) startActivity(new Intent(this, HistoryActivity.class));
+                      else ink.post(() -> nativeInk.refresh());
+                    } else if (which == 3) pair();
+                    else
+                      dialogBuilder()
+                          .setMessage("Clear your annotations?")
+                          .setPositiveButton("Clear", (d, w) -> ink.clear())
+                          .setNeutralButton("Discard review", (d, w) -> discard())
+                          .setNegativeButton("Keep", null)
+                          .show();
+                  });
+            })
+        .show();
+  }
+
   void showQueue() {
-    if (busy) return;
-    TextView content = new TextView(this);
+    if (busy || penActive() || restoreFailed) return;
+    LinearLayout content = new LinearLayout(this);
+    content.setOrientation(1);
     content.setPadding(24, 16, 24, 16);
-    content.setText("Loading queue…");
+    TextView message = new TextView(this);
+    message.setText("Loading documents…");
+    content.addView(message);
     ScrollView scroll = new ScrollView(this);
     scroll.addView(content);
     AlertDialog dialog =
         dialogBuilder()
-            .setTitle("Review queue")
+            .setTitle("Documents")
             .setView(scroll)
             .setPositiveButton("Close", null)
             .show();
@@ -230,30 +240,45 @@ public class MainActivity extends Activity {
     worker.execute(
         () -> {
           try {
-            JSONArray reviews =
-                new JSONObject(new String(request("/api/queue", null), "UTF-8"))
-                    .getJSONArray("reviews");
-            StringBuilder text = new StringBuilder();
-            for (int i = 0; i < reviews.length(); i++) {
-              JSONObject review = reviews.getJSONObject(i);
-              text.append(i + 1)
-                  .append(". ")
-                  .append(review.optString("title", "Untitled"))
-                  .append(" — ")
-                  .append(review.optInt("pageCount", 1))
-                  .append(" pages")
-                  .append(i == 0 ? " (current)" : "")
-                  .append("\n\n");
-            }
-            String result = text.length() == 0 ? "No pending reviews." : text.toString();
+            JSONObject queue = new JSONObject(new String(request("/api/queue", null), "UTF-8"));
+            JSONArray reviews = queue.getJSONArray("reviews");
+            String expected =
+                queue.isNull("activeReviewId") ? null : queue.optString("activeReviewId", null);
             updateUi(
                 () -> {
-                  if (dialog.isShowing()) content.setText(result);
+                  if (!dialog.isShowing()) return;
+                  message.setText(
+                      reviews.length() == 0
+                          ? "No pending documents."
+                          : "Select a document. Your annotations stay saved.");
+                  for (int i = 0; i < reviews.length(); i++) {
+                    JSONObject review = reviews.optJSONObject(i);
+                    if (review == null) continue;
+                    String id = review.optString("id");
+                    Button item = new Button(this);
+                    item.setAllCaps(false);
+                    item.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+                    item.setText(
+                        review.optString("title", "Untitled")
+                            + " · "
+                            + review.optInt("pageCount", 1)
+                            + " pages"
+                            + (id.equals(reviewId) ? " · open" : "")
+                            + (id.equals(expected) && !id.equals(reviewId)
+                                ? " · desktop active"
+                                : ""));
+                    item.setOnClickListener(
+                        v -> {
+                          dialog.dismiss();
+                          selectDocument(id, expected);
+                        });
+                    content.addView(item, new LinearLayout.LayoutParams(-1, -2));
+                  }
                 });
           } catch (Exception error) {
             updateUi(
                 () -> {
-                  if (dialog.isShowing()) content.setText(error.getMessage());
+                  if (dialog.isShowing()) message.setText(error.getMessage());
                 });
           } finally {
             updateUi(
@@ -263,6 +288,175 @@ public class MainActivity extends Activity {
                 });
           }
         });
+  }
+
+  void selectDocument(String id, String expectedCurrent) {
+    if (busy || penActive() || restoreFailed || (id.equals(reviewId) && id.equals(expectedCurrent)))
+      return;
+    if (submissionAttempted) {
+      status.setText("Retry Send before switching documents");
+      return;
+    }
+    if (!save()) return;
+    final String outgoing = reviewId;
+    busy = true;
+    nativeInk.suspend();
+    ink.locked = true;
+    updateNavigation();
+    status.setText("Opening document…");
+    worker.execute(
+        () -> {
+          try {
+            JSONObject metadata =
+                new JSONObject(new String(request("/api/reviews/" + id, null), "UTF-8"));
+            if (!id.equals(metadata.optString("id"))
+                || !"pending".equals(metadata.optString("status")))
+              throw new IOException("Document no longer pending");
+            prepareDocument(metadata);
+            request(
+                "/api/reviews/" + id + "/activate",
+                new JSONObject()
+                    .put(
+                        "expectedCurrentReviewId",
+                        expectedCurrent == null ? JSONObject.NULL : expectedCurrent));
+            updateUi(
+                () -> {
+                  try {
+                    restoreDraft(drafts().draft(id));
+                    if (!save()) throw new IOException("Could not save selected document");
+                    status.setText(
+                        reviewTitle
+                            + (submissionAttempted ? " · Submission locked for retry" : ""));
+                  } catch (Exception error) {
+                    try {
+                      if (!outgoing.isEmpty()) {
+                        restoreDraft(drafts().draft(outgoing));
+                        save();
+                      } else {
+                        reviewId = "";
+                        submissionId = "";
+                        pages.clear();
+                        ink.page = null;
+                        ink.strokes.clear();
+                        ink.invalidate();
+                      }
+                    } catch (Exception restoreError) {
+                      restoreFailed = true;
+                    }
+                    status.setText(
+                        "Could not open document. Draft retained. " + error.getMessage());
+                  }
+                });
+          } catch (Exception error) {
+            updateUi(
+                () -> status.setText("Document unchanged. Draft retained. " + error.getMessage()));
+          } finally {
+            updateUi(
+                () -> {
+                  busy = false;
+                  ink.locked = submissionAttempted;
+                  ink.post(() -> nativeInk.refresh());
+                  updateNavigation();
+                });
+          }
+        });
+  }
+
+  DraftFiles drafts() {
+    return new DraftFiles(getFilesDir());
+  }
+
+  void validateSavedDocument(String id) throws Exception {
+    JSONObject saved =
+        new JSONObject(
+            new String(java.nio.file.Files.readAllBytes(drafts().draft(id).toPath()), "UTF-8"));
+    if (!id.equals(saved.getString("reviewId")))
+      throw new IOException("Saved draft belongs to another document");
+    saved.getString("submissionId");
+    JSONArray entries = saved.optJSONArray("pages");
+    if (entries == null)
+      entries =
+          new JSONArray()
+              .put(
+                  new JSONObject()
+                      .put("file", "page.png")
+                      .put("strokes", saved.getJSONArray("strokes")));
+    if (entries.length() == 0 || entries.length() > 200)
+      throw new IOException("Invalid saved page count");
+    for (int i = 0; i < entries.length(); i++) {
+      JSONObject entry = entries.getJSONObject(i);
+      String name = entry.getString("file");
+      if (!name.matches("[A-Za-z0-9_.-]+") || name.equals(".") || name.equals(".."))
+        throw new IOException("Invalid cached page name");
+      entry.getJSONArray("strokes");
+      BitmapFactory.Options size = new BitmapFactory.Options();
+      size.inJustDecodeBounds = true;
+      BitmapFactory.decodeFile(new File(getFilesDir(), name).toString(), size);
+      CanvasBounds.around(size.outWidth, size.outHeight);
+      JSONObject bounds = entry.optJSONObject("canvasBounds");
+      if (bounds != null)
+        new CanvasBounds(
+                bounds.getInt("x"),
+                bounds.getInt("y"),
+                bounds.getInt("width"),
+                bounds.getInt("height"))
+            .validate(size.outWidth, size.outHeight);
+    }
+  }
+
+  void prepareDocument(JSONObject r) throws Exception {
+    String id = r.getString("id");
+    if (drafts().draft(id).exists()) {
+      validateSavedDocument(id);
+      return;
+    }
+    JSONArray metadata = r.optJSONArray("pages");
+    boolean isDocument = metadata != null;
+    if (metadata == null)
+      metadata =
+          new JSONArray()
+              .put(
+                  new JSONObject()
+                      .put("pageIndex", 1)
+                      .put("width", r.getInt("width"))
+                      .put("height", r.getInt("height")));
+    if (metadata.length() == 0 || metadata.length() > 200)
+      throw new IOException("Unsupported page count");
+    JSONArray saved = new JSONArray();
+    for (int i = 0; i < metadata.length(); i++) {
+      JSONObject m = metadata.getJSONObject(i);
+      if (m.getInt("pageIndex") != i + 1) throw new IOException("Invalid page order");
+      byte[] png =
+          request("/api/reviews/" + id + "/image" + (isDocument ? "?page=" + (i + 1) : ""), null);
+      BitmapFactory.Options dimensions = new BitmapFactory.Options();
+      dimensions.inJustDecodeBounds = true;
+      BitmapFactory.decodeByteArray(png, 0, png.length, dimensions);
+      if (dimensions.outWidth != m.getInt("width") || dimensions.outHeight != m.getInt("height"))
+        throw new IOException("Unsupported page size");
+      CanvasBounds bounds = CanvasBounds.around(dimensions.outWidth, dimensions.outHeight);
+      String file = id + "-page-" + (i + 1) + ".png";
+      atomicWrite(file, png);
+      saved.put(
+          new JSONObject()
+              .put("file", file)
+              .put("strokes", new JSONArray())
+              .put("includeCanvas", true)
+              .put("canvasBounds", boundsJson(bounds))
+              .put("visited", false));
+      final int loaded = i + 1, total = metadata.length();
+      updateUi(() -> status.setText("Loading document " + loaded + " / " + total));
+    }
+    JSONObject draft =
+        new JSONObject()
+            .put("version", 4)
+            .put("reviewId", id)
+            .put("submissionId", UUID.randomUUID().toString())
+            .put("submissionAttempted", false)
+            .put("documentReview", isDocument)
+            .put("title", r.optString("title", "Review"))
+            .put("pagePosition", 0)
+            .put("pages", saved);
+    drafts().write(drafts().draft(id), draft.toString().getBytes("UTF-8"));
   }
 
   void pair() {
@@ -311,7 +505,7 @@ public class MainActivity extends Activity {
                 String newToken = key.getText().toString().trim();
                 if (newToken.isEmpty()) throw new Exception("Token required");
                 String pendingId = reviewId;
-                if (!pendingId.isEmpty() && !newToken.equals(token))
+                if ((!pendingId.isEmpty() || drafts().hasDrafts()) && !newToken.equals(token))
                   throw new Exception("Finish current review before changing token");
                 busy = true;
                 updateNavigation();
@@ -446,65 +640,19 @@ public class MainActivity extends Activity {
             if (id.equals(reviewId)) return;
             if (!reviewId.isEmpty()) {
               updateUi(
-                  () ->
-                      status.setText(
-                          "Saved draft kept. Finish current page before opening another."));
+                  () -> status.setText("Draft saved. Select another document from Documents."));
               return;
             }
             if (!"pending".equals(r.optString("status"))) return;
-            JSONArray metadata = r.optJSONArray("pages");
-            boolean isDocument = metadata != null;
-            if (metadata == null)
-              metadata =
-                  new JSONArray()
-                      .put(
-                          new JSONObject()
-                              .put("pageIndex", 1)
-                              .put("width", r.getInt("width"))
-                              .put("height", r.getInt("height")));
-            if (metadata.length() == 0 || metadata.length() > 200)
-              throw new IOException("Unsupported page count");
-            final ArrayList<PageState> downloaded = new ArrayList<>();
-            for (int i = 0; i < metadata.length(); i++) {
-              JSONObject m = metadata.getJSONObject(i);
-              if (m.getInt("pageIndex") != i + 1) throw new IOException("Invalid page order");
-              byte[] png =
-                  request(
-                      "/api/reviews/" + id + "/image" + (isDocument ? "?page=" + (i + 1) : ""),
-                      null);
-              BitmapFactory.Options bounds = new BitmapFactory.Options();
-              bounds.inJustDecodeBounds = true;
-              BitmapFactory.decodeByteArray(png, 0, png.length, bounds);
-              if (bounds.outWidth != m.getInt("width")
-                  || bounds.outHeight != m.getInt("height")
-                  || bounds.outWidth <= 0
-                  || bounds.outHeight <= 0
-                  || (long) bounds.outWidth * bounds.outHeight > 16000000)
-                throw new IOException("Unsupported page size");
-              PageState page = new PageState();
-              page.file = id + "-page-" + (i + 1) + ".png";
-              atomicWrite(page.file, png);
-              downloaded.add(page);
-              final int loaded = i + 1, total = metadata.length();
-              updateUi(() -> status.setText("Loading document " + loaded + " / " + total));
-            }
-            final boolean doc = isDocument;
+            prepareDocument(r);
             updateUi(
                 () -> {
-                  reviewId = id;
-                  reviewTitle = r.optString("title", "Review");
-                  submissionId = UUID.randomUUID().toString();
-                  submissionAttempted = false;
-                  documentReview = doc;
-                  pages.clear();
-                  pages.addAll(downloaded);
-                  pagePosition = 0;
                   try {
-                    showPage(0);
+                    restoreDraft(drafts().draft(id));
                     save();
                     status.setText(reviewTitle);
-                  } catch (Exception e) {
-                    status.setText("Cannot open page: " + e.getMessage());
+                  } catch (Exception error) {
+                    status.setText("Cannot open document: " + error.getMessage());
                   }
                   updateNavigation();
                 });
@@ -564,7 +712,7 @@ public class MainActivity extends Activity {
     next.setEnabled(hasReview && pagePosition + 1 < pages.size() && !busy);
     pageIndicator.setText(
         hasReview ? "Page " + (pagePosition + 1) + " / " + pages.size() : "No document");
-    send.setText(documentReview ? "Send document" : "Send");
+    send.setText("Send");
     send.setEnabled(hasReview && !busy && (submissionAttempted || allVisited));
   }
 
@@ -609,9 +757,13 @@ public class MainActivity extends Activity {
   }
 
   void clearReviewFiles() {
+    try {
+      drafts().clear(reviewId);
+    } catch (IOException error) {
+      status.setText(error.getMessage());
+      return;
+    }
     for (PageState page : pages) deleteFile(page.file);
-    deleteFile("draft.json");
-    deleteFile("submission.json");
     reviewId = "";
     submissionId = "";
     pages.clear();
@@ -644,7 +796,7 @@ public class MainActivity extends Activity {
     final ArrayList<PageState> snapshot = new ArrayList<>(pages);
     worker.execute(
         () -> {
-          File frozen = new File(getFilesDir(), "submission.json");
+          File frozen = drafts().frozen(id);
           boolean keepFrozen = previousAttempt || frozen.exists();
           boolean serverAccepted = false;
           try {
@@ -712,7 +864,7 @@ public class MainActivity extends Activity {
               if (encoded.length > 24 * 1024 * 1024)
                 throw new IOException(
                     "Document exceeds 24 MiB. Draft kept; ask desktop to split review");
-              atomicWrite("submission.json", encoded);
+              atomicWrite("submission-" + id + ".json", encoded);
             }
             keepFrozen = true;
             byte[] acknowledgement = request("/api/reviews/" + id + "/feedback", body);
@@ -815,7 +967,7 @@ public class MainActivity extends Activity {
                 .put("visited", page.visited));
       JSONObject draft =
           new JSONObject()
-              .put("version", 3)
+              .put("version", 4)
               .put("reviewId", reviewId)
               .put("submissionId", submissionId)
               .put("submissionAttempted", submissionAttempted)
@@ -823,7 +975,7 @@ public class MainActivity extends Activity {
               .put("title", reviewTitle)
               .put("pagePosition", pagePosition)
               .put("pages", saved);
-      atomicWrite("draft.json", draft.toString().getBytes("UTF-8"));
+      drafts().saveActive(reviewId, draft.toString().getBytes("UTF-8"));
       return true;
     } catch (Exception e) {
       status.setText("Draft save failed: " + e.getMessage());
@@ -835,51 +987,60 @@ public class MainActivity extends Activity {
     try {
       File file = new File(getFilesDir(), "draft.json");
       if (!file.exists()) return;
-      JSONObject draft =
+      JSONObject pointer =
           new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()), "UTF-8"));
-      reviewId = draft.getString("reviewId");
-      submissionId = draft.getString("submissionId");
-      submissionAttempted = draft.optBoolean("submissionAttempted", false);
-      documentReview = draft.optBoolean("documentReview", false);
-      reviewTitle = draft.optString("title", "Review");
-      JSONArray saved = draft.optJSONArray("pages");
-      pages.clear();
-      if (saved == null) {
-        // Preserve the original page.png and submission ID when upgrading a pending legacy draft.
-        PageState legacy = new PageState();
-        legacy.file = "page.png";
-        legacy.strokes = draft.getJSONArray("strokes");
-        legacy.visited = true;
-        legacy.includeCanvas = !submissionAttempted;
-        pages.add(legacy);
-      } else {
-        for (int i = 0; i < saved.length(); i++) {
-          JSONObject entry = saved.getJSONObject(i);
-          PageState page = new PageState();
-          page.file = entry.getString("file");
-          if (!page.file.matches("[A-Za-z0-9_.-]+"))
-            throw new IOException("Invalid cached page name");
-          page.strokes = entry.getJSONArray("strokes");
-          page.visited = entry.optBoolean("visited", false);
-          page.includeCanvas = entry.optBoolean("includeCanvas", !submissionAttempted);
-          JSONObject b = entry.optJSONObject("canvasBounds");
-          if (b != null)
-            page.bounds =
-                new CanvasBounds(
-                    b.getInt("x"), b.getInt("y"), b.getInt("width"), b.getInt("height"));
-          pages.add(page);
-        }
-      }
-      if (pages.isEmpty()) throw new IOException("Draft has no pages");
-      showPage(Math.max(0, Math.min(pages.size() - 1, draft.optInt("pagePosition", 0))));
-      status.setText(
-          submissionAttempted
-              ? "Restored pending submission. Send retries unchanged document"
-              : "Restored document annotations");
-    } catch (Exception e) {
+      String activeId = pointer.getString("reviewId");
+      restoreDraft(drafts().activeSnapshot(activeId));
+      if (!activeId.equals(reviewId)) throw new IOException("Active draft ID mismatch");
+      drafts().migrateFrozen(reviewId);
+      if (!save()) throw new IOException("Cannot save restored draft");
+    } catch (Exception error) {
       restoreFailed = true;
-      status.setText("Cannot restore draft: " + e.getMessage());
+      status.setText("Cannot restore draft: " + error.getMessage());
     }
+  }
+
+  void restoreDraft(File file) throws Exception {
+    JSONObject draft =
+        new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()), "UTF-8"));
+    reviewId = draft.getString("reviewId");
+    submissionId = draft.getString("submissionId");
+    submissionAttempted = draft.optBoolean("submissionAttempted", false);
+    documentReview = draft.optBoolean("documentReview", false);
+    reviewTitle = draft.optString("title", "Review");
+    JSONArray saved = draft.optJSONArray("pages");
+    pages.clear();
+    if (saved == null) {
+      // Preserve the original page.png and submission ID when upgrading a pending legacy draft.
+      PageState legacy = new PageState();
+      legacy.file = "page.png";
+      legacy.strokes = draft.getJSONArray("strokes");
+      legacy.visited = true;
+      legacy.includeCanvas = !submissionAttempted;
+      pages.add(legacy);
+    } else {
+      for (int i = 0; i < saved.length(); i++) {
+        JSONObject entry = saved.getJSONObject(i);
+        PageState page = new PageState();
+        page.file = entry.getString("file");
+        if (!page.file.matches("[A-Za-z0-9_.-]+"))
+          throw new IOException("Invalid cached page name");
+        page.strokes = entry.getJSONArray("strokes");
+        page.visited = entry.optBoolean("visited", false);
+        page.includeCanvas = entry.optBoolean("includeCanvas", !submissionAttempted);
+        JSONObject b = entry.optJSONObject("canvasBounds");
+        if (b != null)
+          page.bounds =
+              new CanvasBounds(b.getInt("x"), b.getInt("y"), b.getInt("width"), b.getInt("height"));
+        pages.add(page);
+      }
+    }
+    if (pages.isEmpty()) throw new IOException("Draft has no pages");
+    showPage(Math.max(0, Math.min(pages.size() - 1, draft.optInt("pagePosition", 0))));
+    status.setText(
+        submissionAttempted
+            ? "Restored pending submission. Send retries unchanged document"
+            : "Restored document annotations");
   }
 
   static JSONObject boundsJson(CanvasBounds bounds) throws JSONException {

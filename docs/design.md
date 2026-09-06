@@ -60,3 +60,9 @@ Queue pending documents FIFO, bind each returned submission to its review ID and
 Android expanded feedback uses canvasBounds with signed source origin. The source remains unchanged, ink may extend up to 512 pixels outside each edge, and export contains the entire declared area within 4096/16M limits. Default Page view exposes writing space; Width remains available for text detail. Single-finger horizontal swipes at page-fit navigate; zoomed gestures pan.
 
 Wi-Fi-first pairing discovers the Mac via Bonjour _boox-review._tcp and authenticates before switching from an existing connection. Manual LAN URL and USB remain available. Discovery broadcasts service address only, never token.
+
+## Selectable documents 0.7
+
+Documents lists pending reviews and opens any selected entry. Selection saves the outgoing local draft and restores the incoming document's ink and page position. POST /api/reviews/:id/activate compares expectedCurrentReviewId to avoid stale client switches; retrying an already active target is harmless. Adding documents never overrides a selected pending document. Completing it falls back to FIFO among remaining entries.
+
+Toolbar exposes Documents, Undo, Send and More. Less frequent controls move under More; page navigation stays below. Unconfirmed Send must be retried before switching so an uncertain submission cannot become inaccessible.

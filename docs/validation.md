@@ -71,3 +71,11 @@ Physical isolated app swiped from page 1/3 to 2/3 and showed current plus queued
 Production 0.6.0/code 6 APK SHA-256 ee119e85e43e3d75a1a51f1bb53a98e4a77a6128a14320e0001886d816225045 installed preserving exact production state. Bonjour discovered http://192.168.2.117:4317; authenticated migration succeeded with pending review preserved. USB forwarding was removed and History remained available over the Wi-Fi setup.
 
 Automatic idle-task wake is unavailable in this desktop's supported connection; docs/feedback-continuation.md records evidence. No private IPC or fabricated user-message workaround was used.
+
+## Queue picker and toolbar 0.7.0
+
+28 Node regressions pass. Four Android JVM suites pass, including DraftFilesTest for isolated snapshots, staged targets, exact legacy frozen bytes and authoritative recovery after interrupted dual writes. Independent review caught and verified correction of stale active-pointer overwrite.
+
+On physical BOOX, isolated test selected a three-page queued document, moved to page two, restored a seeded synthetic stroke from its authoritative snapshot after force-stop, switched to another document and back, and preserved page two plus the stroke. This is storage/selection QA, not new user handwriting.
+
+Production version 0.7.0/code7, APK SHA-256 6099048abeeec774322c12e1c924292cadaa2eac8c5f915d6877267b2a65fc53, installed preserving pairing and drafts. Documents displayed all three pending reviews. Fresh review opened directly at page 1/3. Toolbar showed Documents/Undo/Send/More, with all five secondary actions in More. Server review records remained byte-equivalent as JSON data; only active selection changed. Isolated app/bridge removed afterward.

@@ -65,3 +65,11 @@ Page view fits the original document plus 256 pixels of bottom writing space. Wi
 Single-finger horizontal swipes at Page-fit move between pages. Pinch, pen and palm input cancel swipe eligibility; zoomed horizontal gestures pan. Queue displays waiting documents without replacing drafts. Wi-Fi pairing discovers _boox-review._tcp, keeps the token and validates health plus the pending review before switching endpoint. Manual URL remains available.
 
 CanvasGestureTest covers bounds/gesture decisions. Physical tablet swipe and queue checks passed; synthetic signed draft strokes exported across three pages and advanced queue. This checks export/persistence, not new physical pen capture outside page. The production device discovered and connected to Mac Wi-Fi with USB forwarding removed.
+
+## Selectable documents 0.7.0
+
+Toolbar now has Documents, Undo, Send and More. More contains Fit page, Fit width, Submitted history, Connect desktop and Clear annotations. Previous/Next remain below.
+
+Documents lists pending reviews and opens any entry. Each review has its own draft and frozen-submission file; draft.json identifies the last active review. Startup prefers that review's authoritative snapshot to recover a crash between snapshot and active-pointer writes. Legacy frozen payload migration preserves exact bytes. Targets are staged and validated before server activation; a failed or uncertain switch keeps outgoing local draft. Retry an unconfirmed Send before switching. Completing or discarding removes only that review's files.
+
+DraftFilesTest covers snapshot isolation, interrupted active-pointer writes, frozen migration, cleanup confinement and staged-target isolation. Physical isolated switching restored page two and synthetic ink after restart. Production installed with existing drafts intact and fresh review selected through Documents.

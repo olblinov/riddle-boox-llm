@@ -1,6 +1,6 @@
 # Review with your pen
 
-Preferred setup: BOOX and Mac on the same trusted Wi-Fi network. Keep BOOX Review open. Open Pair and discover the Mac on Wi-Fi, or enter its LAN address. The existing token verifies the connection; USB remains an alternative. Continue using this Codex conversation; BOOX becomes its reading and handwriting surface.
+Preferred setup: BOOX and Mac on the same trusted Wi-Fi network. Keep BOOX Review open. Open More > Connect desktop and discover the Mac on Wi-Fi, or enter its LAN address. The existing token verifies the connection; USB remains an alternative. Continue using this Codex conversation; BOOX becomes its reading and handwriting surface.
 
 ## 1. Ask for a tablet review
 
@@ -14,7 +14,7 @@ Use Previous and Next, or swipe left/right with one finger in Page view, to brow
 
 Example: circle "30 days" and write "90 days" beside it. For a diagram, cross out a connection and draw the replacement.
 
-Pen draws. Page view shows the page and bottom writing space. Fingers pan and zoom; when zoomed in, horizontal movement pans. Width restores full-width detail. Zoom out to add notes beyond the original page edges within the surrounding writing area. These notes are included when you send. Undo removes your latest stroke. Each page keeps its own ink when you move between pages.
+Pen draws. More > Fit page view shows the page and bottom writing space. Fingers pan and zoom; when zoomed in, horizontal movement pans. More > Fit width restores full-width detail. Zoom out to add notes beyond the original page edges within the surrounding writing area. These notes are included when you send. Undo removes your latest stroke. Each page keeps its own ink when you move between pages.
 
 ## 3. Send the whole document
 
@@ -26,7 +26,7 @@ You can return to earlier pages before sending. Send includes every page and its
 
 After Send, the Mac stores your submitted pages. While Codex is actively waiting, those pages return to this task. A wait call lasts at most 45 seconds; its timeout does not expire or delete your document. If Codex has stopped waiting, say "Collect my BOOX feedback" in this conversation. Codex reads your ink in context and applies clear requested changes to the original Markdown or diagram source.
 
-Unclear handwriting gets a focused clarification. A revised document can come back for another review. New documents join a queue instead of replacing your current work. Queue shows waiting documents; sending or discarding the current review opens the next one. Drawing on BOOX alone does not edit the source file; Codex makes that edit after Send.
+Unclear handwriting gets a focused clarification. A revised document can come back for another review. New documents join a queue instead of replacing your current work. Documents shows waiting reviews. Tap any entry to open it; current ink and page position are saved for your return. Sending or discarding a review opens the next waiting one. Retry an unconfirmed Send before switching. Drawing on BOOX alone does not edit the source file; Codex makes that edit after Send.
 
 # What happens underneath
 
@@ -56,7 +56,7 @@ The tablet runs no LLM and needs no model key. Review files pass through your Ma
 
 ## Reopen a sent document
 
-Tap History on BOOX to browse sent documents, newest first. Open an entry to read its annotated pages with Previous and Next. History is read-only; Back returns to your active review. Cached entries work offline.
+Tap More > Submitted history on BOOX to browse sent documents, newest first. Open an entry to read its annotated pages with Previous and Next. History is read-only; Back returns to your active review. Cached entries work offline.
 
 Sent history is kept for 90 days by default. Unsent drafts are excluded from expiry. Original Markdown files and explicit archives remain separate. Older submissions start their retention window when first migrated because earlier versions did not record send time.
 

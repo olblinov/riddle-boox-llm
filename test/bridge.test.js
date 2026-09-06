@@ -597,3 +597,24 @@ test("unread feedback survives waiting and requires exact submission acknowledge
  assert.equal((await f.api("/api/feedback-inbox")).body.reviews.length,0);
  assert.equal((await f.api(`/api/reviews/${r.id}/feedback`)).body.status,"submitted");
 });
+
+
+test("queue selection preserves drafts, resists stale switches, and survives enqueue/restart", async (t) => {
+ const f=await fixture(t);
+ const a=(await f.api("/api/reviews",f.page)).body;
+ const b=(await f.api("/api/reviews",f.page)).body;
+ assert.equal((await f.api(`/api/reviews/${b.id}/activate`,{expectedCurrentReviewId:a.id})).status,200);
+ assert.equal(f.store.current().id,b.id);
+ assert.equal(f.store.get(a.id).status,"pending");
+ assert.equal((await f.api(`/api/reviews/${b.id}/activate`,{expectedCurrentReviewId:a.id})).status,200);
+ const c=(await f.api("/api/reviews",f.page)).body;
+ assert.equal(f.store.current().id,b.id);
+ assert.equal((await f.api(`/api/reviews/${c.id}/activate`,{expectedCurrentReviewId:a.id})).status,409);
+ assert.equal((await f.api(`/api/reviews/${c.id}/activate`,{})).status,400);
+ await f.api(`/api/reviews/${b.id}/feedback`,f.feedback);
+ assert.equal(f.store.current().id,a.id);
+ assert.equal((await f.api(`/api/reviews/${b.id}/activate`,{expectedCurrentReviewId:a.id})).status,409);
+ const restored=await createBridge({directory:f.directory});restored.server.emit("close");
+ assert.equal(restored.store.current().id,a.id);
+ assert.equal(restored.store.get(c.id).status,"pending");
+});

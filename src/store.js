@@ -140,8 +140,24 @@ export class Store {
     return Object.values(this.state.reviews).filter(r => r.status === "pending");
   }
   advanceQueue() {
+    if (this.state.reviews[this.state.current]?.status === "pending") return;
     const next = this.pendingQueue()[0];
     if (next) this.state.current = next.id;
+  }
+  activate(id, expectedCurrentReviewId) {
+    return this.mutate(() => {
+      if (expectedCurrentReviewId !== null &&
+          (typeof expectedCurrentReviewId !== "string" || !/^[a-f0-9-]{36}$/.test(expectedCurrentReviewId)))
+        fail(400, "Expected current review ID required");
+      const target = this.get(id);
+      if (target.status !== "pending") fail(409, "Only pending documents can be opened");
+      const active = this.current()?.status === "pending" ? this.state.current : null;
+      // Retry after a lost response is harmless if the target is already active.
+      if (active !== id && active !== expectedCurrentReviewId)
+        fail(409, "Active review changed; refresh queue");
+      this.state.current = id;
+      return {ok:true, review:this.metadata(target)};
+    });
   }
   reviewQueue() {
     return { activeReviewId: this.current()?.status === "pending" ? this.state.current : null,

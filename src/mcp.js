@@ -15,7 +15,7 @@ export function createMcp({
       "token",
     ),
 } = {}) {
-  const server = new McpServer({ name: "boox-review", version: "0.6.0" });
+  const server = new McpServer({ name: "boox-review", version: "0.7.0" });
   const request = async (endpoint, body) => {
     const token = (await readFile(tokenPath, "utf8")).trim();
     const serialized = body ? JSON.stringify(body) : undefined;
