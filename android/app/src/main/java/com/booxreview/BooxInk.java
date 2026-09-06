@@ -23,6 +23,7 @@ final class BooxInk {
   private volatile boolean enabled;
   private volatile boolean capabilityReady, observedRawCallbacks;
   private boolean screenOff;
+  private boolean backingRepaintPending;
   private volatile boolean drawing;
   private final RawStrokeBuffer buffer = new RawStrokeBuffer();
   private float strokeScale, strokeDx, strokeDy, maxPressure = 4096;
@@ -82,7 +83,9 @@ final class BooxInk {
           failed = true;
           return;
         }
-        if (EpdController.getEpdWidth() <= 0 || EpdController.getEpdHeight() <= 0)
+        if (!BooxApplication.compatibilityReady
+            || EpdController.getEpdWidth() <= 0
+            || EpdController.getEpdHeight() <= 0)
           throw new IllegalStateException("Vendor display APIs unavailable");
         helper = TouchHelper.create(view, TouchHelper.FEATURE_SF_TOUCH_RENDER, callback);
         helper.setTouchListenerEnabled(false);
@@ -298,12 +301,33 @@ final class BooxInk {
     activity.queueDraftSave();
     // Raw plane already contains these pixels. Keep its input active across rapid strokes.
     // Explicit navigation/undo/dialog/zoom suspends it and redraws this retained model.
-    if (erased && helper != null) {
-      view.invalidate();
-      EpdController.handwritingRepaint(view, new Rect(0, 0, view.getWidth(), view.getHeight()));
-      // Render-only switch; raw input remains active during eraser reconciliation.
-      helper.setRawDrawingRenderEnabled(true);
-    } else if (!enabled) view.invalidate();
+    if (erased) backingRepaintPending = true;
+    if (backingRepaintPending || !enabled) view.invalidate();
+  }
+
+  void onBackingDrawn() {
+    if (!backingRepaintPending || drawing || helper == null) return;
+    // Wait until the retained Canvas frame has finished before requesting panel repaint.
+    view.postOnAnimation(
+        () -> {
+          if (!backingRepaintPending
+              || drawing
+              || helper == null
+              || closed
+              || !enabled
+              || activity.stopped
+              || !activity.hasWindowFocus()
+              || activity.dialogOpen
+              || panelOpen
+              || screenOff) return;
+          try {
+            EpdController.handwritingRepaint(
+                view, new Rect(0, 0, view.getWidth(), view.getHeight()));
+            backingRepaintPending = false;
+          } catch (Throwable error) {
+            fail(error);
+          }
+        });
   }
 
   private final RawInputCallback callback =
@@ -335,6 +359,11 @@ final class BooxInk {
 
         public void onEndRawErasing(boolean b, TouchPoint p) {
           commit();
+          try {
+            if (helper != null) helper.setRawDrawingRenderEnabled(true);
+          } catch (Throwable error) {
+            fail(error);
+          }
         }
 
         public void onRawErasingTouchPointMoveReceived(TouchPoint p) {

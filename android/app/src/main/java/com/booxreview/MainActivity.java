@@ -753,6 +753,7 @@ public class MainActivity extends Activity {
       c.drawBitmap(page, 0, 0, bitmapPaint);
       drawInk(c);
       c.restore();
+      if (nativeInk != null) nativeInk.onBackingDrawn();
     }
 
     void drawInk(Canvas c) {

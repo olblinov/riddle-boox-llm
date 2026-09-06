@@ -21,4 +21,4 @@ Markdown extension complete: paginated rendering, source snapshots/checksums, fe
 
 ## Native pen latency follow-up
 
-Native SDK candidate and raw capture regression prepared. Actual Android 11 blocks required private vendor APIs; automatic approval review rejected compatibility exception. No exception deployed, production stays0.3.0. Exact status and proposed scope: [native-ink-status.md](native-ink-status.md).
+Version 0.4.0 installed with the approved app-local compatibility exception. Native geometry initialization, dialog/page/restart recovery, automated regression and production draft preservation pass. Physical handwriting latency and raw callback acceptance remain for actual pen use. See [native-ink-status.md](native-ink-status.md).

@@ -48,7 +48,7 @@ bash android/build.sh
 
 Native app build instructions and device limitations: [docs/android.md](docs/android.md). Browser behavior: [docs/browser.md](docs/browser.md). Concept and API contract: [docs/design.md](docs/design.md). Verification evidence: [docs/validation.md](docs/validation.md).
 
-The Android client uses platform stylus events and Canvas. BOOX-specific low-latency rendering is not yet integrated; physical-device testing must establish pen latency and refresh quality. No reMarkable takeover code is needed.
+Version 0.4.0 uses BOOX native pen rendering with an approved app-local compatibility exception and Canvas fallback. Native geometry initializes on Note Air2 Plus; actual pen latency, raw callbacks and refresh quality still need physical handwriting validation. No reMarkable takeover code is needed.
 
 ## Remove local installation
 

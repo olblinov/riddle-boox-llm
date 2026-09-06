@@ -28,13 +28,13 @@ Note Air2 Plus detected over authorized USB debugging. APK installed, app unfroz
 
 ## Remaining device measurements
 
-Basic rendering, real pen capture, explicit Send, clarification, and source-edit round trip passed. Further tests can measure eraser, palm rejection, pan/zoom, restart recovery, latency, and ghosting. The implementation uses standard Android Canvas; BOOX vendor fast-ink support is not included.
+Basic rendering, real pen capture, explicit Send, clarification, and source-edit round trip passed. Further tests can measure eraser, palm rejection, pan/zoom, restart recovery, latency, and ghosting. These initial checks used standard Android Canvas. Version 0.4.0 adds vendor native ink; its separate limits are recorded below.
 
 ## Sources
 
 - Codex MCP configuration and default tool timeout: https://learn.chatgpt.com/docs/extend/mcp?surface=cli
 - Skill discovery through repository/user `.agents/skills`: https://learn.chatgpt.com/docs/build-skills
-- BOOX SDK reference for future native ink optimization: https://github.com/onyx-intl/OnyxAndroidDemo
+- BOOX SDK reference: https://github.com/onyx-intl/OnyxAndroidDemo
 
 ## Whole-document update 0.3.0
 
@@ -45,3 +45,13 @@ Actual browser acceptance on isolated port 4319 covered two annotated pages, bac
 Official BOOX specifications confirm 1404 × 1872 at 227 ppi; adb independently reported those physical pixel dimensions. Native device screenshot verifies full-width display with 24-pixel content margins; vertical finger pan reaches page footer. Three-page navigation and current-page restoration after force-stop passed in an isolated package, preserving the production pending review. Synthetic pen round-trip passed on isolated review `eb1b87d6-d9c2-4463-b479-314ac1c9cb52`: explicit Android stylus events drew a distinct stroke on each of three pages, then force-stop/relaunch restored page one and enabled Send after all pages had been visited. One Send from page one returned three 1404 × 1872 composites, each with one 32-point stroke at its original page coordinates. These are injected test strokes on physical hardware, not new user handwriting. An earlier isolated review was cancelled unexpectedly and is excluded from acceptance evidence. Production review remained untouched by test clients. Screenshots assess raster layout, not panel ghosting or subjective grain.
 
 Production 0.3.0 APK installed over the existing app. Accessibility state confirmed restored legacy annotations and Page 1 / 1. Bridge restarted successfully; complete persisted production state matched its pre-upgrade copy exactly and authenticated health returned 200. New typography applies to newly rendered documents; the old pending image remains unchanged to preserve annotation placement.
+
+## Native ink update 0.4.0
+
+Twenty automated tests and RawStrokeBufferTest pass. Production and isolated test APKs pass signature/version verification. Production APK SHA-256: `51fa76bc5f893a480a4c9547d41d782b17c4a1789df8dc7bb37a9d4f8f86c419`.
+
+On the connected Note Air2 Plus, the approved four-class compatibility scope enables nonempty native geometry with pressure maximum 4095. Pair dialog dismissal, three-page navigation and process restart pass in the isolated test package. Page two and all visited flags restore after restart. No AndroidRuntime crash observed.
+
+Production version 0.4.0/code 4 installed over the existing app. It restores document annotations and Page 1 / 1, initializes native geometry, and leaves complete persisted bridge state equal to its pre-upgrade copy. Existing pending review remains untouched.
+
+No physical pen raw callback or optical latency measurement was captured in this test. Android-injected stylus events do not feed the native raw reader. Physical pen, eraser and palm acceptance remain unverified; startup logs are not substitutes.

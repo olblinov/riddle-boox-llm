@@ -118,5 +118,13 @@
     "licenses": [
       "The Apache Software License, Version 2.0"
     ]
+  },
+  {
+    "file": "hiddenapibypass-4.3.aar",
+    "url": "https://repo.maven.apache.org/maven2/org/lsposed/hiddenapibypass/hiddenapibypass/4.3/hiddenapibypass-4.3.aar",
+    "sha256": "e9c2b90785b8c0d49aaa5f723a83d8c51d9789cd4f2b1ecf6e3335e6fc561201",
+    "licenses": [
+      "The Apache Software License, Version 2.0"
+    ]
   }
 ]
