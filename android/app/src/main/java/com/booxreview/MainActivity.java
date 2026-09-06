@@ -17,7 +17,13 @@ public class MainActivity extends Activity {
   final Handler handler = new Handler(Looper.getMainLooper());
   InkView ink;
   TextView status;
-  Button send;
+  Button send, previous, next;
+  TextView pageIndicator;
+  final ArrayList<PageState> pages = new ArrayList<>();
+  int pagePosition = 0;
+  boolean documentReview = false;
+  boolean restoreFailed = false;
+  String reviewTitle = "Review";
   String base = "", token = "", reviewId = "", submissionId = "";
   boolean busy = false, stopped = false, submissionAttempted = false;
   volatile boolean destroyed = false;
@@ -41,8 +47,9 @@ public class MainActivity extends Activity {
     root.setOrientation(1);
     root.setBackgroundColor(Color.WHITE);
     status = new TextView(this);
-    status.setTextSize(17);
-    status.setPadding(14, 12, 14, 12);
+    status.setTextSize(13);
+    status.setMaxLines(2);
+    status.setPadding(10, 4, 10, 4);
     status.setText("Pair with desktop to receive a page");
     root.addView(status);
     LinearLayout bar = new LinearLayout(this);
@@ -65,22 +72,39 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Keep", null)
                 .show();
         });
-    button(bar, "Fit", v -> ink.fit());
+    button(bar, "Width", v -> ink.fit());
     send = button(bar, "Send", v -> submit());
     send.setEnabled(false);
     root.addView(bar);
+    LinearLayout navigation = new LinearLayout(this);
+    previous = button(navigation, "Previous", v -> navigate(-1));
+    pageIndicator = new TextView(this);
+    pageIndicator.setTextSize(15);
+    pageIndicator.setGravity(Gravity.CENTER);
+    navigation.addView(pageIndicator, new LinearLayout.LayoutParams(0, -1, 1));
+    next = button(navigation, "Next", v -> navigate(1));
+    root.addView(navigation);
     ink = new InkView(this);
     root.addView(ink, new LinearLayout.LayoutParams(-1, 0, 1));
     setContentView(root);
     restore();
+    updateNavigation();
     if (base.isEmpty()) pair();
   }
 
   Button button(LinearLayout bar, String label, View.OnClickListener action) {
     Button b = new Button(this);
     b.setText(label);
+    b.setTextSize(14);
+    b.setAllCaps(false);
+    b.setMinHeight(0);
+    b.setMinimumHeight(0);
+    b.setPadding(4, 2, 4, 2);
     b.setOnClickListener(action);
-    bar.addView(b, new LinearLayout.LayoutParams(0, -2, 1));
+    bar.addView(
+        b,
+        new LinearLayout.LayoutParams(
+            0, (int) (42 * getResources().getDisplayMetrics().density), 1));
     return b;
   }
 
@@ -94,6 +118,7 @@ public class MainActivity extends Activity {
     super.onPause();
     stopped = true;
     handler.removeCallbacks(poll);
+    if (ink.stylusPointerId != -1) ink.finishStylus(false);
     save();
   }
 
@@ -230,44 +255,77 @@ public class MainActivity extends Activity {
               return;
             }
             if (!"pending".equals(r.optString("status"))) return;
-            byte[] png = request("/api/reviews/" + id + "/image", null);
-            BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            BitmapFactory.decodeByteArray(png, 0, png.length, bounds);
-            if (bounds.outWidth <= 0
-                || bounds.outHeight <= 0
-                || (long) bounds.outWidth * bounds.outHeight > 16000000)
-              throw new IOException("Unsupported page size");
-            Bitmap bmp = BitmapFactory.decodeByteArray(png, 0, png.length);
+            JSONArray metadata = r.optJSONArray("pages");
+            boolean isDocument = metadata != null;
+            if (metadata == null)
+              metadata =
+                  new JSONArray()
+                      .put(
+                          new JSONObject()
+                              .put("pageIndex", 1)
+                              .put("width", r.getInt("width"))
+                              .put("height", r.getInt("height")));
+            if (metadata.length() == 0 || metadata.length() > 200)
+              throw new IOException("Unsupported page count");
+            final ArrayList<PageState> downloaded = new ArrayList<>();
+            for (int i = 0; i < metadata.length(); i++) {
+              JSONObject m = metadata.getJSONObject(i);
+              if (m.getInt("pageIndex") != i + 1) throw new IOException("Invalid page order");
+              byte[] png =
+                  request(
+                      "/api/reviews/" + id + "/image" + (isDocument ? "?page=" + (i + 1) : ""),
+                      null);
+              BitmapFactory.Options bounds = new BitmapFactory.Options();
+              bounds.inJustDecodeBounds = true;
+              BitmapFactory.decodeByteArray(png, 0, png.length, bounds);
+              if (bounds.outWidth != m.getInt("width")
+                  || bounds.outHeight != m.getInt("height")
+                  || bounds.outWidth <= 0
+                  || bounds.outHeight <= 0
+                  || (long) bounds.outWidth * bounds.outHeight > 16000000)
+                throw new IOException("Unsupported page size");
+              PageState page = new PageState();
+              page.file = id + "-page-" + (i + 1) + ".png";
+              atomicWrite(page.file, png);
+              downloaded.add(page);
+              final int loaded = i + 1, total = metadata.length();
+              updateUi(() -> status.setText("Loading document " + loaded + " / " + total));
+            }
+            final boolean doc = isDocument;
             updateUi(
                 () -> {
                   reviewId = id;
+                  reviewTitle = r.optString("title", "Review");
                   submissionId = UUID.randomUUID().toString();
                   submissionAttempted = false;
-                  ink.setPage(bmp);
+                  documentReview = doc;
+                  pages.clear();
+                  pages.addAll(downloaded);
+                  pagePosition = 0;
                   try {
-                    try (FileOutputStream out = openFileOutput("page.png", 0)) {
-                      out.write(png);
-                    }
+                    showPage(0);
+                    save();
+                    status.setText(reviewTitle);
                   } catch (Exception e) {
-                    status.setText("Cannot save page: " + e.getMessage());
+                    status.setText("Cannot open page: " + e.getMessage());
                   }
-                  save();
-                  status.setText(
-                      r.optString("title", "Review") + " • Write with pen, move/zoom with fingers");
-                  send.setEnabled(true);
+                  updateNavigation();
                 });
           } catch (Exception e) {
             updateUi(() -> status.setText("Connection failed. Draft kept. " + e.getMessage()));
             nextPoll = System.currentTimeMillis() + 8000;
           } finally {
-            updateUi(() -> busy = false);
+            updateUi(
+                () -> {
+                  busy = false;
+                  updateNavigation();
+                });
           }
         });
   }
 
   void discard() {
-    if (busy || reviewId.isEmpty()) return;
+    if (busy || reviewId.isEmpty() || ink.stylusPointerId != -1) return;
     busy = true;
     ink.locked = true;
     worker.execute(
@@ -276,10 +334,7 @@ public class MainActivity extends Activity {
             request("/api/reviews/" + reviewId + "/cancel", new JSONObject());
             updateUi(
                 () -> {
-                  reviewId = "";
-                  submissionId = "";
-                  deleteFile("draft.json");
-                  deleteFile("page.png");
+                  clearReviewFiles();
                   ink.page = null;
                   ink.strokes.clear();
                   ink.invalidate();
@@ -293,79 +348,234 @@ public class MainActivity extends Activity {
                   ink.locked = submissionAttempted;
                 });
           } finally {
-            updateUi(() -> busy = false);
+            updateUi(
+                () -> {
+                  busy = false;
+                  updateNavigation();
+                });
           }
         });
+  }
+
+  void updateNavigation() {
+    boolean hasReview = !restoreFailed && !reviewId.isEmpty() && !pages.isEmpty();
+    boolean allVisited = hasReview;
+    for (PageState page : pages) allVisited &= page.visited;
+    previous.setEnabled(hasReview && pagePosition > 0 && !busy);
+    next.setEnabled(hasReview && pagePosition + 1 < pages.size() && !busy);
+    pageIndicator.setText(
+        hasReview ? "Page " + (pagePosition + 1) + " / " + pages.size() : "No document");
+    send.setText(documentReview ? "Send document" : "Send");
+    send.setEnabled(hasReview && !busy && (submissionAttempted || allVisited));
+  }
+
+  void captureCurrentPage() {
+    if (!pages.isEmpty() && ink.page != null) pages.get(pagePosition).strokes = ink.json();
+  }
+
+  void showPage(int index) throws Exception {
+    PageState state = pages.get(index);
+    Bitmap bitmap = BitmapFactory.decodeFile(new File(getFilesDir(), state.file).toString());
+    if (bitmap == null) throw new IOException("Cached page missing");
+    Bitmap old = ink.page;
+    ink.setPage(bitmap);
+    ink.load(state.strokes);
+    ink.locked = submissionAttempted;
+    pagePosition = index;
+    state.visited = true;
+    if (old != null && old != bitmap) old.recycle();
+  }
+
+  void navigate(int delta) {
+    int target = pagePosition + delta;
+    if (busy || ink.stylusPointerId != -1 || target < 0 || target >= pages.size()) return;
+    if (!save()) return;
+    try {
+      showPage(target);
+      save();
+      status.setText(reviewTitle + (submissionAttempted ? " • Submission locked for retry" : ""));
+    } catch (Exception e) {
+      status.setText("Page unchanged: " + e.getMessage());
+    }
+    updateNavigation();
+  }
+
+  void clearReviewFiles() {
+    for (PageState page : pages) deleteFile(page.file);
+    deleteFile("draft.json");
+    deleteFile("submission.json");
+    reviewId = "";
+    submissionId = "";
+    pages.clear();
+    pagePosition = 0;
+    updateNavigation();
   }
 
   void submit() {
     if (busy || reviewId.isEmpty() || ink.page == null || ink.stylusPointerId != -1) return;
+    if (!submissionAttempted) {
+      for (PageState page : pages) if (!page.visited) return;
+    }
+    if (!save()) return;
+    final boolean previousAttempt = submissionAttempted;
     busy = true;
-    send.setEnabled(false);
     ink.locked = true;
-    status.setText("Sending annotations…");
     submissionAttempted = true;
-    save();
+    if (!save()) {
+      submissionAttempted = previousAttempt;
+      ink.locked = previousAttempt;
+      busy = false;
+      updateNavigation();
+      return;
+    }
+    updateNavigation();
+    status.setText("Sending document…");
     final String id = reviewId;
-    final Bitmap composite = ink.composite();
-    final JSONArray strokes = ink.json();
+    final ArrayList<PageState> snapshot = new ArrayList<>(pages);
     worker.execute(
         () -> {
+          File frozen = new File(getFilesDir(), "submission.json");
+          boolean keepFrozen = previousAttempt || frozen.exists();
           try {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            composite.compress(Bitmap.CompressFormat.PNG, 100, out);
-            JSONObject body =
-                new JSONObject()
-                    .put("submissionId", submissionId)
-                    .put(
-                        "compositeBase64",
-                        android.util.Base64.encodeToString(
-                            out.toByteArray(), android.util.Base64.NO_WRAP))
-                    .put("strokes", strokes);
+            JSONObject body;
+            if (frozen.exists()) {
+              body =
+                  new JSONObject(
+                      new String(java.nio.file.Files.readAllBytes(frozen.toPath()), "UTF-8"));
+            } else {
+              JSONArray feedback = new JSONArray();
+              long payloadEstimate = 128;
+              for (int i = 0; i < snapshot.size(); i++) {
+                PageState state = snapshot.get(i);
+                Bitmap original =
+                    BitmapFactory.decodeFile(new File(getFilesDir(), state.file).toString());
+                if (original == null) throw new IOException("Cached page missing");
+                Bitmap composite = original.copy(Bitmap.Config.ARGB_8888, true);
+                original.recycle();
+                try {
+                  drawStoredInk(new Canvas(composite), state.strokes);
+                  ByteArrayOutputStream out = new ByteArrayOutputStream();
+                  composite.compress(Bitmap.CompressFormat.PNG, 100, out);
+                  payloadEstimate +=
+                      ((out.size() + 2L) / 3L) * 4L
+                          + state.strokes.toString().getBytes("UTF-8").length
+                          + 128;
+                  if (payloadEstimate > 24 * 1024 * 1024)
+                    throw new IOException("Document exceeds 24 MiB; draft kept");
+                  feedback.put(
+                      new JSONObject()
+                          .put("pageIndex", i + 1)
+                          .put(
+                              "compositeBase64",
+                              android.util.Base64.encodeToString(
+                                  out.toByteArray(), android.util.Base64.NO_WRAP))
+                          .put("strokes", state.strokes));
+                } finally {
+                  composite.recycle();
+                }
+              }
+              body = new JSONObject().put("submissionId", submissionId);
+              if (documentReview) body.put("pages", feedback);
+              else
+                body.put("compositeBase64", feedback.getJSONObject(0).getString("compositeBase64"))
+                    .put("strokes", feedback.getJSONObject(0).getJSONArray("strokes"));
+              byte[] encoded = body.toString().getBytes("UTF-8");
+              if (encoded.length > 24 * 1024 * 1024)
+                throw new IOException(
+                    "Document exceeds 24 MiB. Draft kept; ask desktop to split review");
+              atomicWrite("submission.json", encoded);
+            }
+            keepFrozen = true;
             request("/api/reviews/" + id + "/feedback", body);
             updateUi(
                 () -> {
-                  reviewId = "";
-                  submissionId = "";
-                  deleteFile("draft.json");
-                  deleteFile("page.png");
-                  status.setText("Sent to Codex. Waiting for next page");
+                  clearReviewFiles();
+                  status.setText("Document sent to Codex. Waiting for next review");
                   ink.locked = true;
                 });
           } catch (Exception e) {
+            final boolean retainLock = keepFrozen || frozen.exists();
             updateUi(
                 () -> {
+                  submissionAttempted = retainLock;
+                  ink.locked = retainLock;
+                  if (!retainLock) save();
                   status.setText(
-                      "Send not confirmed. Draft kept unchanged. Tap Send to retry. "
+                      (retainLock
+                              ? "Send not confirmed. Draft kept unchanged. Retry Send. "
+                              : "Nothing sent. Draft remains editable. ")
                           + e.getMessage());
-                  send.setEnabled(true);
-                  ink.locked = true;
                 });
           } finally {
-            composite.recycle();
-            updateUi(() -> busy = false);
+            updateUi(
+                () -> {
+                  busy = false;
+                  updateNavigation();
+                });
           }
         });
   }
 
-  void save() {
-    if (reviewId.isEmpty() || ink == null) return;
+  static void drawStoredInk(Canvas canvas, JSONArray strokes) throws JSONException {
+    Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    paint.setColor(Color.BLACK);
+    paint.setStrokeCap(Paint.Cap.ROUND);
+    paint.setStyle(Paint.Style.STROKE);
+    for (int i = 0; i < strokes.length(); i++) {
+      JSONObject stroke = strokes.getJSONObject(i);
+      JSONArray points = stroke.getJSONArray("points");
+      float width = (float) stroke.getDouble("width");
+      for (int j = 0; j < points.length(); j++) {
+        JSONObject point = points.getJSONObject(j);
+        float x = (float) point.getDouble("x"), y = (float) point.getDouble("y");
+        paint.setStrokeWidth(width * (.4f + .6f * (float) point.getDouble("pressure")));
+        if (j == 0) canvas.drawPoint(x, y, paint);
+        else {
+          JSONObject before = points.getJSONObject(j - 1);
+          canvas.drawLine(
+              (float) before.getDouble("x"), (float) before.getDouble("y"), x, y, paint);
+        }
+      }
+    }
+  }
+
+  void atomicWrite(String name, byte[] bytes) throws IOException {
+    File tmp = new File(getFilesDir(), name + ".tmp");
+    try (FileOutputStream out = new FileOutputStream(tmp)) {
+      out.write(bytes);
+      out.getFD().sync();
+    }
+    if (!tmp.renameTo(new File(getFilesDir(), name)))
+      throw new IOException("Could not save " + name);
+  }
+
+  boolean save() {
+    if (restoreFailed) return false;
+    if (reviewId.isEmpty() || ink == null) return true;
     try {
-      JSONObject d =
+      captureCurrentPage();
+      JSONArray saved = new JSONArray();
+      for (PageState page : pages)
+        saved.put(
+            new JSONObject()
+                .put("file", page.file)
+                .put("strokes", page.strokes)
+                .put("visited", page.visited));
+      JSONObject draft =
           new JSONObject()
+              .put("version", 2)
               .put("reviewId", reviewId)
               .put("submissionId", submissionId)
               .put("submissionAttempted", submissionAttempted)
-              .put("strokes", ink.json());
-      File tmp = new File(getFilesDir(), "draft.tmp");
-      try (FileOutputStream out = new FileOutputStream(tmp)) {
-        out.write(d.toString().getBytes("UTF-8"));
-        out.getFD().sync();
-      }
-      if (!tmp.renameTo(new File(getFilesDir(), "draft.json")))
-        throw new IOException("Draft rename failed");
+              .put("documentReview", documentReview)
+              .put("title", reviewTitle)
+              .put("pagePosition", pagePosition)
+              .put("pages", saved);
+      atomicWrite("draft.json", draft.toString().getBytes("UTF-8"));
+      return true;
     } catch (Exception e) {
       status.setText("Draft save failed: " + e.getMessage());
+      return false;
     }
   }
 
@@ -373,24 +583,50 @@ public class MainActivity extends Activity {
     try {
       File file = new File(getFilesDir(), "draft.json");
       if (!file.exists()) return;
-      byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
-      JSONObject d = new JSONObject(new String(bytes, "UTF-8"));
-      Bitmap bmp = BitmapFactory.decodeFile(new File(getFilesDir(), "page.png").toString());
-      if (bmp == null) return;
-      reviewId = d.getString("reviewId");
-      submissionId = d.getString("submissionId");
-      ink.setPage(bmp);
-      ink.load(d.getJSONArray("strokes"));
-      submissionAttempted = d.optBoolean("submissionAttempted", false);
-      ink.locked = submissionAttempted;
-      send.setEnabled(true);
+      JSONObject draft =
+          new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()), "UTF-8"));
+      reviewId = draft.getString("reviewId");
+      submissionId = draft.getString("submissionId");
+      submissionAttempted = draft.optBoolean("submissionAttempted", false);
+      documentReview = draft.optBoolean("documentReview", false);
+      reviewTitle = draft.optString("title", "Review");
+      JSONArray saved = draft.optJSONArray("pages");
+      pages.clear();
+      if (saved == null) {
+        // Preserve the original page.png and submission ID when upgrading a pending legacy draft.
+        PageState legacy = new PageState();
+        legacy.file = "page.png";
+        legacy.strokes = draft.getJSONArray("strokes");
+        legacy.visited = true;
+        pages.add(legacy);
+      } else {
+        for (int i = 0; i < saved.length(); i++) {
+          JSONObject entry = saved.getJSONObject(i);
+          PageState page = new PageState();
+          page.file = entry.getString("file");
+          if (!page.file.matches("[A-Za-z0-9_.-]+"))
+            throw new IOException("Invalid cached page name");
+          page.strokes = entry.getJSONArray("strokes");
+          page.visited = entry.optBoolean("visited", false);
+          pages.add(page);
+        }
+      }
+      if (pages.isEmpty()) throw new IOException("Draft has no pages");
+      showPage(Math.max(0, Math.min(pages.size() - 1, draft.optInt("pagePosition", 0))));
       status.setText(
           submissionAttempted
-              ? "Restored pending submission. Tap Send to retry unchanged feedback"
-              : "Restored annotations. Continue writing or Send");
+              ? "Restored pending submission. Send retries unchanged document"
+              : "Restored document annotations");
     } catch (Exception e) {
+      restoreFailed = true;
       status.setText("Cannot restore draft: " + e.getMessage());
     }
+  }
+
+  static class PageState {
+    String file;
+    JSONArray strokes = new JSONArray();
+    boolean visited;
   }
 
   class InkView extends View {
@@ -398,6 +634,7 @@ public class MainActivity extends Activity {
     ArrayList<Stroke> strokes = new ArrayList<>();
     Stroke active;
     Paint paint = new Paint(3);
+    Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     float scale = 1, dx = 0, dy = 0, lastX, lastY;
     boolean locked = false;
     int stylusPointerId = -1;
@@ -406,7 +643,7 @@ public class MainActivity extends Activity {
 
     InkView(Context c) {
       super(c);
-      setBackgroundColor(Color.LTGRAY);
+      setBackgroundColor(Color.WHITE);
       zoom =
           new ScaleGestureDetector(
               c,
@@ -432,10 +669,9 @@ public class MainActivity extends Activity {
     void fit() {
       if (stylusPointerId != -1) return;
       if (page != null && getWidth() > 0) {
-        scale =
-            Math.min((float) getWidth() / page.getWidth(), (float) getHeight() / page.getHeight());
-        dx = (getWidth() - page.getWidth() * scale) / 2;
-        dy = (getHeight() - page.getHeight() * scale) / 2;
+        scale = (float) getWidth() / page.getWidth();
+        dx = 0;
+        dy = 0;
         invalidate();
       }
     }
@@ -451,7 +687,8 @@ public class MainActivity extends Activity {
       c.translate(dx, dy);
       c.scale(scale, scale);
       c.clipRect(0, 0, page.getWidth(), page.getHeight());
-      c.drawBitmap(page, 0, 0, null);
+      bitmapPaint.setFilterBitmap(Math.abs(scale - Math.round(scale)) > .0001f);
+      c.drawBitmap(page, 0, 0, bitmapPaint);
       drawInk(c);
       c.restore();
     }

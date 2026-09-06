@@ -19,3 +19,17 @@ Actual in-app browser against isolated bridge on port 4318: pairing, review rend
 Before the first feedback POST, persist the exact JSON request body, including composite PNG and submission ID. If storage cannot persist it, do not send. Once attempted, pen, note, undo, clear, and page replacement remain locked until delivery is confirmed; the Send control becomes Retry same comments. Retrying sends identical bytes, including after browser reload. A newer current review cannot replace this unresolved submission. After confirmed success, the next review may open normally.
 
 Regression simulation runs actual app code against a mock DOM/fetch: server accepts first body but loses ACK; editor locks, frozen body survives reload, newer review does not replace it, identical retry succeeds. This supplements the actual browser round-trip and connection-loss tests above.
+
+## Whole-document review
+
+Reviews with `pages` show Previous, Next, page number, and visited count. Ink and typed comments belong to each page and survive navigation/reload. The final Send all pages action stays disabled until every page has been opened. It submits every page in source order, including pages without annotations, in one request. Legacy single-page reviews keep their original payload shape.
+
+Viewing a page marks it visited; this does not claim the user read every word. The document remains one review. Unresolved frozen submissions cannot be replaced by a newer review, even after reload. A 24 MiB UTF-8 request-size check rejects oversized documents before sending and preserves editable comments. Browser storage capacity may impose a smaller limit; inability to persist the exact request prevents submission safely.
+
+Viewport uses full width with white background and no side gutters. Pages fit width, not whole-page height; vertical scrolling and explicit zoom preserve readability. Ink canvas uses at least source resolution and increases to physical display resolution on high-DPI screens. Export renders strokes directly in original image coordinates. Browser cannot restore detail absent from the source PNG.
+
+Automated browser-state tests cover per-page ink/note isolation and reload, visiting all pages before send, ordered one-request submission, high-DPI backing resolution, oversized payload rejection, and exact lost-ACK retry for both legacy and multipage reviews.
+
+Decoded image cache retains at most three pages and revokes evicted object URLs while protecting the displayed page. Submission loads pages sequentially. The visible ink canvas caps its backing raster near eight million pixels, even at high zoom/DPI; original-coordinate export remains unchanged.
+
+Actual multipage browser acceptance passed against isolated port 4319: annotated page one and page two, navigated back, reloaded, verified both drafts, then sent once. Server returned submitted with ordered pages 1 and 2, one stroke each, matching per-page comments, and two 1000 × 1200 composite PNGs. Physical BOOX browser stylus behavior is still untested.

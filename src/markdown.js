@@ -108,9 +108,11 @@ function dimensions(width, height) {
       "Markdown page dimensions must be 600–4096 by 800–4096, at most 16 million pixels",
     );
   const scale = width / 1404;
-  const font = Math.max(18, Math.round(28 * scale));
-  const margin = Math.round(56 * scale);
-  const annotation = Math.max(100, Math.round(240 * scale));
+  // Match the Note Air2 Plus pixel grid. Leave space between lines for ink,
+  // rather than reserving a large column that reduces every line's width.
+  const font = Math.max(20, Math.round(36 * scale));
+  const margin = Math.round(24 * scale);
+  const annotation = 0;
   return {
     width,
     height,
@@ -118,8 +120,8 @@ function dimensions(width, height) {
     margin,
     annotation,
     contentWidth: width - margin * 2 - annotation,
-    top: Math.max(55, Math.round(80 * scale)),
-    bottom: Math.max(55, Math.round(80 * scale)),
+    top: Math.max(40, Math.round(48 * scale)),
+    bottom: Math.max(55, Math.round(64 * scale)),
   };
 }
 
@@ -541,14 +543,8 @@ async function rasterizePage(page, geometry, index, count, filename, deadline) {
     margin,
     height - geometry.bottom / 2,
   );
-  await textImage(
-    [{ text: "Comments" }],
-    Math.max(14, Math.round(font * 0.65)),
-    margin + contentWidth + 24,
-    geometry.top - 30,
-  );
   const background = Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="white"/><line x1="${margin + contentWidth + 12}" y1="${geometry.top}" x2="${margin + contentWidth + 12}" y2="${height - geometry.bottom}" stroke="#aaa" stroke-dasharray="4 8"/>${decorations.join("")}</svg>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="white"/>${decorations.join("")}</svg>`,
   );
   return sharp(background).composite(overlays).png().toBuffer();
 }

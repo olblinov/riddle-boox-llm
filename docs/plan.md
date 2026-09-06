@@ -13,4 +13,8 @@ Design authority was explicitly delegated by user. No extra design approval gate
 
 Software implementation, native APK build, browser regression, and live Codex MCP image-feedback acceptance complete. Skill and local login service installed. Physical Note Air2 Plus USB, rendering, real pen feedback, clarification, and Markdown adaptation verified. Private repository and prerelease hold source and APK.
 
-Markdown extension complete: paginated rendering, source snapshots/checksums, feedback mapping, skill adaptation workflow, and live source-edit acceptance. Android APK unchanged because pages remain PNG.
+Markdown extension complete: paginated rendering, source snapshots/checksums, feedback mapping, skill adaptation workflow, and live source-edit acceptance. The original Markdown extension reused the single-page Android app.
+
+## Display and document update
+
+0.3.0 addresses actual-use feedback: native full-width view, larger Markdown text, narrow margins, and whole-document navigation with one submission. Renderer, bridge/MCP, native client, browser and skill updated together. Legacy drafts remain compatible. Twenty automated tests and real browser multipage acceptance pass; connected BOOX acceptance is recorded in validation.md.

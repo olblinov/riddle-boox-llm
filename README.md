@@ -29,7 +29,7 @@ Ask Codex:
 
 > Draft the design in design.md, send the rendered file to my BOOX, wait for my pen edits, then update the Markdown from my comments.
 
-`boox_present` accepts `markdown_path`. Long files become numbered pages with room for annotations. Tap Send after each page; Codex collects comments, maps them to the reviewed source, and edits the original `.md`. A source checksum and snapshot protect against overwriting changes made during review. No Android update is required for Markdown pages.
+`boox_present` accepts `markdown_path`. Long files become one document with numbered pages. Use Previous/Next to read and annotate all pages, then tap Send once. Codex receives every page’s comments, maps them to the reviewed source, and edits the original `.md`. A source checksum and snapshot protect against overwriting changes made during review. Whole-document navigation requires the updated Android app or browser client. Single-page reviews remain compatible with older clients.
 
 ## Manual service
 

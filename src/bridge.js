@@ -45,13 +45,31 @@ export async function createBridge({
         if (req.method === "POST") {
           if (!req.headers["content-type"]?.startsWith("application/json"))
             fail(415, "JSON required");
+          if (Number(req.headers["content-length"] ?? 0) > 24 * 1024 * 1024)
+            fail(413, "Request exceeds 24 MiB; split the document review");
           const chunks = [];
           let size = 0;
-          for await (const chunk of req) {
-            size += chunk.length;
-            if (size > 24 * 1024 * 1024) fail(413, "Request too large");
-            chunks.push(chunk);
-          }
+          await new Promise((resolve, reject) => {
+            const onData = (chunk) => {
+              size += chunk.length;
+              if (size > 24 * 1024 * 1024) {
+                req.off("data", onData);
+                req.resume();
+                reject(
+                  new HttpError(
+                    413,
+                    "Request exceeds 24 MiB; split the document review",
+                  ),
+                );
+              } else chunks.push(chunk);
+            };
+            req.on("data", onData);
+            req.once("end", resolve);
+            req.once("error", reject);
+            req.once("aborted", () =>
+              reject(new HttpError(400, "Request interrupted")),
+            );
+          });
           try {
             body = JSON.parse(Buffer.concat(chunks).toString());
           } catch {
@@ -77,8 +95,15 @@ export async function createBridge({
           if (req.method === "GET" && !operation)
             return json(200, store.metadata(store.get(id)));
           if (req.method === "GET" && operation === "image") {
+            const rawPage = url.searchParams.get("page");
+            if (rawPage !== null && !/^[1-9][0-9]*$/.test(rawPage))
+              fail(400, "Invalid page index");
+            const image = store.image(
+              id,
+              rawPage === null ? 1 : Number(rawPage),
+            );
             res.writeHead(200, { "Content-Type": "image/png" });
-            return res.end(Buffer.from(store.get(id).imageBase64, "base64"));
+            return res.end(Buffer.from(image, "base64"));
           }
           if (req.method === "GET" && operation === "feedback")
             return json(200, store.feedback(id));

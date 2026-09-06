@@ -20,6 +20,9 @@ const ui = Object.fromEntries(
     "page",
     "ink",
     "empty",
+    "previous-page",
+    "next-page",
+    "page-number",
   ].map((id) => [id, $(id)]),
 );
 const context = ui.ink.getContext("2d");
@@ -34,7 +37,11 @@ let token = "",
   latest = null,
   submissionId = null,
   submitted = false,
-  frozenBody = null;
+  frozenBody = null,
+  pageStates = [],
+  pagePosition = 0,
+  loadingPage = false;
+const imageCache = new Map();
 const DRAFT = "boox-review-draft-v1";
 const status = (text) => {
   ui.status.textContent = text;
@@ -62,7 +69,30 @@ const storage = {
     }
   },
 };
+function pages() {
+  return review?.pages?.length
+    ? review.pages
+    : review
+      ? [{ ...review, pageIndex: 1 }]
+      : [];
+}
+function rememberPage() {
+  if (pageStates[pagePosition])
+    Object.assign(pageStates[pagePosition], { strokes, note: ui.note.value });
+}
+function allVisited() {
+  return pageStates.length > 0 && pageStates.every((page) => page.visited);
+}
+function hasDraft() {
+  rememberPage();
+  return (
+    !!frozenBody ||
+    !!active ||
+    pageStates.some((page) => page.strokes.length || page.note)
+  );
+}
 function save() {
+  rememberPage();
   if (!review) return;
   return storage.set(
     DRAFT,
@@ -73,14 +103,29 @@ function save() {
       submissionId,
       submitted,
       frozenBody,
+      pageStates,
+      pagePosition,
     }),
   );
 }
 function controls() {
-  const editable = !!review && !submitted && !sending && !frozenBody;
+  const editable =
+    !!review && !submitted && !sending && !frozenBody && !loadingPage;
   ui.undo.disabled = !editable || !strokes.length;
   ui.clear.disabled = !editable || !strokes.length;
-  ui.send.disabled = !review || submitted || sending;
+  ui.send.disabled =
+    !review ||
+    submitted ||
+    sending ||
+    loadingPage ||
+    (!frozenBody && !allVisited());
+  ui["previous-page"].disabled =
+    !review || pagePosition === 0 || loadingPage || sending;
+  ui["next-page"].disabled =
+    !review || pagePosition >= pages().length - 1 || loadingPage || sending;
+  ui["page-number"].textContent = review
+    ? `Page ${pagePosition + 1} of ${pages().length} · ${pageStates.filter((page) => page.visited).length} visited`
+    : "";
   ui.next.disabled = !!frozenBody && !submitted;
   ui.note.disabled = !editable;
   ui.send.textContent = sending
@@ -89,7 +134,9 @@ function controls() {
       ? "Comments sent"
       : frozenBody
         ? "Retry same comments"
-        : "Send comments";
+        : review?.pages?.length
+          ? "Send all pages"
+          : "Send comments";
 }
 async function api(path, options = {}) {
   const controller = new AbortController();
@@ -117,45 +164,72 @@ async function api(path, options = {}) {
   }
   return response;
 }
-function drawStroke(stroke) {
+function drawStroke(stroke, target = context) {
   const points = stroke.points;
   if (!points.length) return;
-  context.strokeStyle = "#000";
-  context.fillStyle = "#000";
-  context.lineCap = "round";
-  context.lineJoin = "round";
+  target.strokeStyle = "#000";
+  target.fillStyle = "#000";
+  target.lineCap = "round";
+  target.lineJoin = "round";
   if (points.length === 1) {
-    context.beginPath();
-    context.arc(points[0].x, points[0].y, stroke.width / 2, 0, Math.PI * 2);
-    context.fill();
+    target.beginPath();
+    target.arc(points[0].x, points[0].y, stroke.width / 2, 0, Math.PI * 2);
+    target.fill();
     return;
   }
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1],
       b = points[i];
-    context.lineWidth =
+    target.lineWidth =
       stroke.width * (0.6 + 0.8 * ((a.pressure + b.pressure) / 2));
-    context.beginPath();
-    context.moveTo(a.x, a.y);
-    context.lineTo(b.x, b.y);
-    context.stroke();
+    target.beginPath();
+    target.moveTo(a.x, a.y);
+    target.lineTo(b.x, b.y);
+    target.stroke();
   }
 }
 function redraw() {
   context.clearRect(0, 0, ui.ink.width, ui.ink.height);
-  strokes.forEach(drawStroke);
+  strokes.forEach((stroke) => drawStroke(stroke));
   if (active) drawStroke(active);
 }
 function fit() {
-  if (!review) return;
-  const padding = innerWidth < 650 ? 16 : 32;
-  ui.sheet.style.width = `${Math.max(100, ui.viewport.clientWidth - padding) * Number(ui.zoom.value)}px`;
+  if (!review || !image) return;
+  const page = pages()[pagePosition];
+  const width =
+    Math.max(100, ui.viewport.clientWidth) * (Number(ui.zoom.value) || 1);
+  ui.sheet.style.width = `${width}px`;
+  // Match physical display pixels while keeping all ink in source-image coordinates.
+  const desiredRatio = Math.max(
+    1,
+    (width * (window.devicePixelRatio || 1)) / page.width,
+  );
+  const ratio = Math.min(
+    desiredRatio,
+    Math.sqrt(8_000_000 / (page.width * page.height)),
+  );
+  ui.ink.width = Math.ceil(page.width * ratio);
+  ui.ink.height = Math.ceil(page.height * ratio);
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  redraw();
 }
-async function openReview(next, restore = false) {
-  const old = review;
-  const response = await api(next.imageUrl);
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
+function trimImageCache() {
+  for (const [key, cached] of imageCache) {
+    if (imageCache.size <= 3) break;
+    if (cached === image) continue;
+    imageCache.delete(key);
+    URL.revokeObjectURL(cached.src);
+  }
+}
+async function loadImage(page) {
+  if (imageCache.has(page.imageUrl)) {
+    const cached = imageCache.get(page.imageUrl);
+    imageCache.delete(page.imageUrl);
+    imageCache.set(page.imageUrl, cached);
+    return cached;
+  }
+  const response = await api(page.imageUrl);
+  const objectUrl = URL.createObjectURL(await response.blob());
   const loaded = new Image();
   try {
     await new Promise((resolve, reject) => {
@@ -164,41 +238,79 @@ async function openReview(next, restore = false) {
       loaded.src = objectUrl;
     });
     if (
-      loaded.naturalWidth !== next.width ||
-      loaded.naturalHeight !== next.height
+      loaded.naturalWidth !== page.width ||
+      loaded.naturalHeight !== page.height
     )
       throw new Error("Review image dimensions do not match");
-    review = next;
-    image = loaded;
-    ui.page.src = objectUrl;
-    if (!restore || old?.id !== next.id) {
-      frozenBody = null;
-      strokes = [];
-      ui.note.value = "";
-      submissionId = uuid();
-      submitted = next.status === "submitted";
-    }
-    ui.ink.width = next.width;
-    ui.ink.height = next.height;
-    ui.title.textContent = next.title;
-    ui.sheet.style.display = "block";
-    ui.empty.hidden = true;
-    ui.notice.hidden = true;
-    fit();
-    redraw();
-    controls();
-    save();
-    status(
-      submitted
-        ? "Comments sent. Waiting for the next page."
-        : frozenBody
-          ? "Submission outcome unconfirmed. Editing locked. Retry same comments to confirm delivery."
-          : "Use pen to comment. Use finger to scroll. Tap Send comments when done.",
-    );
+    imageCache.set(page.imageUrl, loaded);
+    trimImageCache();
+    return loaded;
   } catch (error) {
     URL.revokeObjectURL(objectUrl);
     throw error;
   }
+}
+async function showPage(position) {
+  if (loadingPage || sending || position < 0 || position >= pages().length)
+    return;
+  if (active) finish({ pointerId: active.pointerId });
+  rememberPage();
+  loadingPage = true;
+  controls();
+  try {
+    const loaded = await loadImage(pages()[position]);
+    pagePosition = position;
+    image = loaded;
+    trimImageCache();
+    strokes = pageStates[position].strokes;
+    ui.note.value = pageStates[position].note;
+    pageStates[position].visited = true;
+    ui.page.src = loaded.src;
+    ui.sheet.style.display = "block";
+    ui.empty.hidden = true;
+    ui.viewport.scrollTop = 0;
+    ui.viewport.scrollLeft = 0;
+    fit();
+    save();
+  } finally {
+    loadingPage = false;
+    controls();
+  }
+}
+async function openReview(next, restore = false) {
+  if (loadingPage || sending) return;
+  // Fetch before replacing state so a failed load cannot discard the old draft.
+  const first = next.pages?.length
+    ? next.pages[restore ? pagePosition : 0]
+    : next;
+  loadingPage = true;
+  controls();
+  try {
+    await loadImage(first);
+  } finally {
+    loadingPage = false;
+    controls();
+  }
+  review = next;
+  if (!restore) {
+    frozenBody = null;
+    strokes = [];
+    ui.note.value = "";
+    submissionId = uuid();
+    submitted = next.status === "submitted";
+    pagePosition = 0;
+    pageStates = pages().map(() => ({ strokes: [], note: "", visited: false }));
+  }
+  ui.title.textContent = next.title;
+  ui.notice.hidden = true;
+  await showPage(pagePosition);
+  status(
+    submitted
+      ? "Comments sent. Waiting for the next document."
+      : frozenBody
+        ? "Submission outcome unconfirmed. Editing locked. Retry same comments to confirm delivery."
+        : "Read every page, add comments, then send the whole document. Pen draws; finger scrolls.",
+  );
 }
 function changed() {
   if (frozenBody) return;
@@ -212,15 +324,17 @@ function point(event) {
     x: Math.max(
       0,
       Math.min(
-        review.width,
-        ((event.clientX - rect.left) * review.width) / rect.width,
+        pages()[pagePosition].width,
+        ((event.clientX - rect.left) * pages()[pagePosition].width) /
+          rect.width,
       ),
     ),
     y: Math.max(
       0,
       Math.min(
-        review.height,
-        ((event.clientY - rect.top) * review.height) / rect.height,
+        pages()[pagePosition].height,
+        ((event.clientY - rect.top) * pages()[pagePosition].height) /
+          rect.height,
       ),
     ),
     pressure: event.pressure > 0 ? event.pressure : 0.5,
@@ -233,6 +347,7 @@ ui.ink.addEventListener("pointerdown", (event) => {
     sending ||
     frozenBody ||
     active ||
+    loadingPage ||
     !(
       event.pointerType === "pen" ||
       (event.pointerType === "mouse" && ui.mouse.checked)
@@ -243,7 +358,7 @@ ui.ink.addEventListener("pointerdown", (event) => {
   ui.ink.setPointerCapture(event.pointerId);
   active = {
     pointerId: event.pointerId,
-    width: Math.max(2, review.width / 400),
+    width: Math.max(2, pages()[pagePosition].width / 400),
     points: [point(event)],
   };
   redraw();
@@ -281,31 +396,61 @@ ui.clear.onclick = () => {
   changed();
 };
 ui.note.addEventListener("input", changed);
+ui["previous-page"].onclick = () =>
+  showPage(pagePosition - 1).catch((error) => status(error.message));
+ui["next-page"].onclick = () =>
+  showPage(pagePosition + 1).catch((error) => status(error.message));
 ui.zoom.onchange = fit;
 window.addEventListener("resize", fit);
 ui.send.onclick = async () => {
-  if (!review || sending || submitted) return;
+  if (
+    !review ||
+    sending ||
+    submitted ||
+    loadingPage ||
+    (!frozenBody && !allVisited())
+  )
+    return;
   if (active) finish({ pointerId: active.pointerId });
   sending = true;
   controls();
   save();
   try {
     if (!frozenBody) {
-      const composite = document.createElement("canvas");
-      composite.width = review.width;
-      composite.height = review.height;
-      const c = composite.getContext("2d");
-      c.fillStyle = "#fff";
-      c.fillRect(0, 0, composite.width, composite.height);
-      c.drawImage(image, 0, 0);
-      c.drawImage(ui.ink, 0, 0);
-      const payload = {
-        submissionId,
-        compositeBase64: composite.toDataURL("image/png").split(",")[1],
-        strokes,
-        note: ui.note.value,
-      };
-      frozenBody = JSON.stringify(payload);
+      rememberPage();
+      const rendered = [];
+      for (let index = 0; index < pages().length; index++) {
+        const page = pages()[index];
+        const base = await loadImage(page);
+        const composite = document.createElement("canvas");
+        composite.width = page.width;
+        composite.height = page.height;
+        const c = composite.getContext("2d");
+        c.fillStyle = "#fff";
+        c.fillRect(0, 0, page.width, page.height);
+        c.drawImage(base, 0, 0);
+        pageStates[index].strokes.forEach((stroke) => drawStroke(stroke, c));
+        rendered.push({
+          pageIndex: page.pageIndex,
+          compositeBase64: composite.toDataURL("image/png").split(",")[1],
+          strokes: pageStates[index].strokes,
+          note: pageStates[index].note,
+        });
+      }
+      const payload = review.pages?.length
+        ? { submissionId, pages: rendered }
+        : {
+            submissionId,
+            compositeBase64: rendered[0].compositeBase64,
+            strokes: rendered[0].strokes,
+            note: rendered[0].note,
+          };
+      const body = JSON.stringify(payload);
+      if (new TextEncoder().encode(body).byteLength > 24 * 1024 * 1024)
+        throw new Error(
+          "Document feedback exceeds 24 MiB. Ask Codex to split this document into smaller reviews; comments are preserved",
+        );
+      frozenBody = body;
       if (!save()) {
         frozenBody = null;
         throw new Error(
@@ -331,7 +476,7 @@ ui.send.onclick = async () => {
   }
 };
 async function poll() {
-  if (!connected || polling || sending) return;
+  if (!connected || polling || sending || loadingPage) return;
   polling = true;
   try {
     const result = await (await api("/api/reviews/current")).json();
@@ -341,11 +486,7 @@ async function poll() {
       return;
     }
     if (latest.id === review?.id) return;
-    if (
-      review &&
-      !submitted &&
-      (frozenBody || strokes.length || ui.note.value || active)
-    ) {
+    if (review && !submitted && hasDraft()) {
       ui.notice.hidden = false;
       ui["notice-text"].textContent =
         "Another page is available. Your unsent comments remain here.";
@@ -362,7 +503,7 @@ ui.next.onclick = async () => {
   if (!latest || (frozenBody && !submitted)) return;
   if (
     !submitted &&
-    (strokes.length || ui.note.value) &&
+    hasDraft() &&
     !confirm("Open the new page and discard unsent comments on this page?")
   )
     return;
@@ -393,6 +534,13 @@ ui.pair.onsubmit = async (event) => {
         submissionId = saved.submissionId || uuid();
         submitted = !!saved.submitted;
         frozenBody = saved.frozenBody || null;
+        pageStates = saved.pageStates || [
+          { strokes, note: ui.note.value, visited: true },
+        ];
+        pagePosition = Math.max(
+          0,
+          Math.min(saved.pagePosition || 0, pageStates.length - 1),
+        );
         await openReview(review, true);
       } catch (error) {
         status(

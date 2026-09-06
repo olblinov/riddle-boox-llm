@@ -255,7 +255,7 @@ test("Markdown review preserves source context and rejects changed versions", as
   t.after(() => Promise.all([client.close(), server.close()]));
   const presented = await client.callTool({
     name: "boox_present",
-    arguments: { title: "Proposal", markdown_path: file },
+    arguments: { title: "Proposal", markdown_path: file, markdown_page: 1 },
   });
   assert.equal(presented.isError, undefined, JSON.stringify(presented));
   const review = JSON.parse(presented.content[0].text);
@@ -304,4 +304,225 @@ test("Markdown review preserves source context and rejects changed versions", as
   assert.match(changed.content[0].text, /changed|checksum|SHA|version/i);
   const restored = await createBridge({ directory: f.directory });
   assert.deepEqual(restored.store.feedback(review.id).source, review.source);
+});
+
+test("document feedback is atomic, ordered, idempotent and survives reload", async (t) => {
+  const f = await fixture(t);
+  const source = (pageIndex) => ({
+    kind: "markdown",
+    path: "/tmp/source.md",
+    snapshotPath: "/tmp/snapshot.md",
+    sha256: "a".repeat(64),
+    pageIndex,
+    pageCount: 2,
+    startLine: pageIndex * 10,
+    endLine: pageIndex * 10 + 9,
+  });
+  const secondImage = (
+    await sharp({
+      create: { width: 300, height: 200, channels: 3, background: "#ddd" },
+    })
+      .png()
+      .toBuffer()
+  ).toString("base64");
+  const pages = [
+    { ...f.page, source: source(1) },
+    { imageBase64: secondImage, width: 300, height: 200, source: source(2) },
+  ];
+  const created = await f.api("/api/reviews", {
+    title: "Whole document",
+    pages,
+  });
+  assert.equal(created.status, 201);
+  const review = created.body;
+  assert.equal(review.pageCount, 2);
+  assert.equal(review.width, 200);
+  assert.equal(review.source.pageIndex, 1);
+  assert.equal(review.pages[1].source.pageIndex, 2);
+  assert.equal(review.pages[0].imageBase64, undefined);
+  const image = await fetch(f.url + review.pages[1].imageUrl, {
+    headers: { Authorization: `Bearer ${f.store.token}` },
+  });
+  assert.equal(
+    Buffer.from(await image.arrayBuffer()).toString("base64"),
+    secondImage,
+  );
+  assert.equal(
+    (await f.api(`/api/reviews/${review.id}/image?page=0`)).status,
+    400,
+  );
+  assert.equal(
+    (await f.api(`/api/reviews/${review.id}/image?page=3`)).status,
+    400,
+  );
+  const payload = {
+    submissionId: "document-1",
+    note: "Overall comment",
+    pages: [
+      {
+        pageIndex: 1,
+        compositeBase64: f.page.imageBase64,
+        strokes: f.feedback.strokes,
+        note: "First page",
+      },
+      {
+        pageIndex: 2,
+        compositeBase64: secondImage,
+        strokes: [],
+        note: "Second page",
+      },
+    ],
+  };
+  for (const bad of [
+    { ...payload, pages: payload.pages.slice(0, 1) },
+    { ...payload, pages: [...payload.pages].reverse() },
+    { ...payload, pages: [payload.pages[0], payload.pages[0]] },
+    {
+      ...payload,
+      pages: [
+        payload.pages[0],
+        { ...payload.pages[1], compositeBase64: "dGVzdA==" },
+      ],
+    },
+  ]) {
+    assert.equal(
+      (await f.api(`/api/reviews/${review.id}/feedback`, bad)).status,
+      400,
+    );
+    assert.equal(
+      (await f.api(`/api/reviews/${review.id}/feedback`)).body.status,
+      "pending",
+    );
+  }
+  assert.equal(
+    (await f.api(`/api/reviews/${review.id}/feedback`, payload)).status,
+    200,
+  );
+  assert.equal(
+    (await f.api(`/api/reviews/${review.id}/feedback`, payload)).status,
+    200,
+  );
+  const changed = structuredClone(payload);
+  changed.pages[1].note = "Altered";
+  assert.equal(
+    (await f.api(`/api/reviews/${review.id}/feedback`, changed)).status,
+    409,
+  );
+  const restored = await createBridge({ directory: f.directory });
+  const feedback = restored.store.feedback(review.id);
+  assert.equal(feedback.pages.length, 2);
+  assert.equal(feedback.note, "Overall comment");
+  assert.deepEqual(feedback.pages[1].source, source(2));
+  assert.equal(feedback.pages[1].compositeBase64, secondImage);
+  assert.equal(restored.store.image(review.id, 1), f.page.imageBase64);
+  const next = await f.api("/api/reviews", f.page);
+  assert.equal(next.status, 201);
+  assert.equal(
+    (
+      await f.api(`/api/reviews/${review.id}/feedback`, {
+        ...payload,
+        submissionId: "stale",
+      })
+    ).status,
+    409,
+  );
+});
+
+test("MCP Markdown defaults to all pages and returns labelled image feedback without base64 text", async (t) => {
+  const f = await fixture(t);
+  const file = path.join(f.directory, "document.md");
+  await writeFile(
+    file,
+    Array.from(
+      { length: 12 },
+      (_, i) =>
+        `## Section ${i + 1}\n\nWhole document annotations stay together. Read every page before pressing Send.\n\n`,
+    ).join(""),
+  );
+  const server = createMcp({
+    url: f.url,
+    tokenPath: path.join(f.directory, "token"),
+  });
+  const client = new Client({ name: "document-test", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(a), client.connect(b)]);
+  t.after(() => Promise.all([client.close(), server.close()]));
+  const presented = await client.callTool({
+    name: "boox_present",
+    arguments: {
+      title: "Entire document",
+      markdown_path: file,
+      width: 1000,
+      height: 1000,
+    },
+  });
+  assert.equal(presented.isError, undefined, JSON.stringify(presented));
+  const review = JSON.parse(presented.content[0].text);
+  assert.ok(review.pageCount > 1);
+  assert.equal(review.pages.length, review.pageCount);
+  assert.equal(review.pages.at(-1).source.pageIndex, review.pageCount);
+  const payload = {
+    submissionId: "all-pages",
+    pages: review.pages.map((page) => ({
+      pageIndex: page.pageIndex,
+      compositeBase64: f.store.image(review.id, page.pageIndex),
+      strokes: [],
+      note: `Comment ${page.pageIndex}`,
+    })),
+  };
+  assert.equal(
+    (await f.api(`/api/reviews/${review.id}/feedback`, payload)).status,
+    200,
+  );
+  const returned = await client.callTool({
+    name: "boox_wait_feedback",
+    arguments: { review_id: review.id, wait_seconds: 0 },
+  });
+  const images = returned.content.filter((content) => content.type === "image");
+  assert.equal(images.length, review.pageCount);
+  const texts = returned.content
+    .filter((content) => content.type === "text")
+    .map((content) => content.text);
+  assert.ok(
+    texts.every(
+      (text) => !text.includes("compositeBase64") && !text.includes("iVBOR"),
+    ),
+  );
+  const last = JSON.parse(texts.at(-1));
+  assert.equal(
+    last.label,
+    `Annotated page ${review.pageCount}/${review.pageCount}`,
+  );
+  assert.deepEqual(last.source, review.pages.at(-1).source);
+  assert.equal(last.note, `Comment ${review.pageCount}`);
+});
+
+test("oversized requests return explicit 24 MiB error without creating a review", async (t) => {
+  const f = await fixture(t);
+  const oversized = await f.api("/api/reviews", {
+    title: "Oversized",
+    padding: "x".repeat(24 * 1024 * 1024),
+  });
+  assert.equal(oversized.status, 413);
+  assert.match(oversized.body.error, /24 MiB/);
+  assert.equal(f.store.current(), null);
+});
+
+test("chunked oversize upload receives JSON limit error without partial review", async (t) => {
+  const f = await fixture(t);
+  const body = async function* () {
+    for (let i = 0; i < 25; i++) yield Buffer.alloc(1024 * 1024, "x");
+  };
+  const response = await fetch(f.url + "/api/reviews", {
+    method: "POST",
+    duplex: "half",
+    body: body(),
+    headers: {
+      Authorization: `Bearer ${f.store.token}`,
+      "Content-Type": "application/json",
+    },
+  });
+  assert.equal(response.status, 413);
+  assert.match((await response.json()).error, /24 MiB/);
+  assert.equal(f.store.current(), null);
 });

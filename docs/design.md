@@ -31,6 +31,16 @@ Build native APK; test HTTP lifecycle, auth, stale/duplicate submissions, MCP im
 
 ## Markdown reviews
 
-`boox_present` accepts `markdown_path`, optional 1-based `markdown_page`, and `expected_sha256`. Desktop renderer produces numbered PNG pages with annotation whitespace. Each review persists source path, SHA-256, immutable source snapshot path, page count/index, and source line range. Feedback returns that metadata alongside ink and composite.
+`boox_present` accepts `markdown_path` and `expected_sha256`. By default, one review contains every rendered page. Each page preserves its source line range; all share an immutable source snapshot and SHA-256. Optional `markdown_page` retains the legacy single-page workflow.
 
-Long documents use one explicit Send per page on existing clients. Codex collects all page feedback before modifying the original Markdown, then checks current source against the reviewed snapshot to avoid losing concurrent edits. This requires no Android update. Source remains Markdown; PNG is only the review surface. Rendering never executes document HTML or fetches remote resources.
+Android and browser keep per-page ink across navigation and restart. Previous/Next allows review of all pages before one document Send. Submission includes every page exactly once, freezes for identical retries, and commits atomically. Codex reads all returned images and checks current source against the snapshot before editing Markdown. Source remains Markdown; PNG is only the review surface.
+
+## Display decisions
+
+Note Air2 Plus is 1404 × 1872 at 227 ppi, confirmed against [BOOX specifications](https://shop.boox.com/products/noteair2promo) and connected device pixel dimensions. Pages already use the device’s 3:4 aspect ratio. The old full-page fit reduced them to make room for controls, creating side gutters and resampling text.
+
+Default viewing now uses full width with vertical panning for remaining content. The native client filters fractional zooms and keeps the background white. Markdown uses 36-pixel body text, 24-pixel side margins, and interline annotation space instead of a 240-pixel comment column. Physical e-ink quality still depends on device refresh mode; pixel-perfect screenshots cannot measure ghosting or perceived panel grain.
+
+## Document API extension
+
+See [bridge.md](bridge.md) for the implemented document contract. A document adds a `pages` array to creation and metadata; page images use `image?page=N`. Feedback carries an ordered `pages` array under one `submissionId`. Existing single-page persisted reviews and requests remain supported. The 24 MiB request bound applies to the whole document; oversized documents fail rather than silently truncating or submitting only part.

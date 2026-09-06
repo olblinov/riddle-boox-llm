@@ -15,9 +15,12 @@ export function createMcp({
       "token",
     ),
 } = {}) {
-  const server = new McpServer({ name: "boox-review", version: "0.2.0" });
+  const server = new McpServer({ name: "boox-review", version: "0.3.0" });
   const request = async (endpoint, body) => {
     const token = (await readFile(tokenPath, "utf8")).trim();
+    const serialized = body ? JSON.stringify(body) : undefined;
+    if (serialized && Buffer.byteLength(serialized) > 24 * 1024 * 1024)
+      throw new Error("Request exceeds 24 MiB; split the document review");
     const response = await fetch(new URL(endpoint, url), {
       method: body ? "POST" : "GET",
       headers: {
@@ -25,7 +28,7 @@ export function createMcp({
         Authorization: `Bearer ${token}`,
         ...(body ? { "Content-Type": "application/json" } : {}),
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: serialized,
       signal: AbortSignal.timeout(10000),
     });
     const result = await response.json();
@@ -48,7 +51,7 @@ export function createMcp({
   };
   server.tool(
     "boox_present",
-    "Present a persistent page on paired BOOX for handwritten feedback. Provide exactly one PNG path, Markdown file path, plain text, or constrained diagram scene. Markdown renders as numbered pages; submit each page and retain source checksum before adapting the original file. A pending review must be completed or cancelled first.",
+    "Present a persistent page on paired BOOX for handwritten feedback. Provide exactly one PNG path, Markdown file path, plain text, or constrained diagram scene. Markdown defaults to a whole-document review: browse and annotate all pages, then Send once. Explicit markdown_page selects a legacy single-page review. Retain source checksum before adapting the original file. A pending review must be completed or cancelled first.",
     {
       title: z.string().min(1).max(200),
       image_path: z.string().optional(),
@@ -97,9 +100,10 @@ export function createMcp({
           height: args.height,
           expectedSha256: args.expected_sha256,
         });
-        const index = args.markdown_page ?? 1;
-        const page = document.pages[index - 1];
-        if (!page)
+        const index = args.markdown_page;
+        const page =
+          index === undefined ? undefined : document.pages[index - 1];
+        if (index !== undefined && !page)
           throw new Error(
             `Markdown has ${document.pages.length} pages; requested ${index}`,
           );
@@ -133,23 +137,33 @@ export function createMcp({
             throw new Error("Stored Markdown snapshot checksum mismatch");
           }
         }
-        const source = {
-          kind: "markdown",
-          ...document.source,
-          snapshotPath,
-          pageIndex: index,
-          pageCount: document.pages.length,
-          startLine: page.sourceStartLine,
-          endLine: page.sourceEndLine,
-        };
+        const pagePayload = (page) => ({
+          imageBase64: page.imageBase64,
+          width: page.width,
+          height: page.height,
+          source: {
+            kind: "markdown",
+            ...document.source,
+            snapshotPath,
+            pageIndex: page.pageIndex,
+            pageCount: document.pages.length,
+            startLine: page.sourceStartLine,
+            endLine: page.sourceEndLine,
+          },
+        });
         return output(
-          await request("/api/reviews", {
-            title: `${args.title.slice(0, 175)} · ${index}/${document.pages.length}`,
-            imageBase64: page.imageBase64,
-            width: page.width,
-            height: page.height,
-            source,
-          }),
+          await request(
+            "/api/reviews",
+            index === undefined
+              ? {
+                  title: args.title,
+                  pages: document.pages.map(pagePayload),
+                }
+              : {
+                  title: `${args.title.slice(0, 175)} · ${index}/${document.pages.length}`,
+                  ...pagePayload(page),
+                },
+          ),
         );
       }
       if (
@@ -180,6 +194,34 @@ export function createMcp({
       while (true) {
         const result = await request(`/api/reviews/${review_id}/feedback`);
         if (result.status === "submitted") {
+          if (result.pages) {
+            const { pages, ...metadata } = result;
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    ...metadata,
+                    pageCount: pages.length,
+                  }),
+                },
+                ...pages.flatMap(({ compositeBase64, ...page }) => [
+                  {
+                    type: "text",
+                    text: JSON.stringify({
+                      label: `Annotated page ${page.pageIndex}/${pages.length}`,
+                      ...page,
+                    }),
+                  },
+                  {
+                    type: "image",
+                    mimeType: "image/png",
+                    data: compositeBase64,
+                  },
+                ]),
+              ],
+            };
+          }
           const { compositeBase64, ...metadata } = result;
           return {
             content: [
