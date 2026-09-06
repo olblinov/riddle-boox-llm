@@ -39,7 +39,7 @@ Android and browser keep per-page ink across navigation and restart. Previous/Ne
 
 Note Air2 Plus is 1404 × 1872 at 227 ppi, confirmed against [BOOX specifications](https://shop.boox.com/products/noteair2promo) and connected device pixel dimensions. Pages already use the device’s 3:4 aspect ratio. The old full-page fit reduced them to make room for controls, creating side gutters and resampling text.
 
-Default viewing now uses full width with vertical panning for remaining content. The native client filters fractional zooms and keeps the background white. Markdown uses 36-pixel body text, 24-pixel side margins, and interline annotation space instead of a 240-pixel comment column. Physical e-ink quality still depends on device refresh mode; pixel-perfect screenshots cannot measure ghosting or perceived panel grain.
+Default viewing now uses full width with vertical panning for remaining content. The native client filters fractional zooms and keeps the background white. Markdown uses 36-pixel body text, 96-pixel margins on all four sides, and interline annotation space instead of a 240-pixel comment column. Physical e-ink quality still depends on device refresh mode; pixel-perfect screenshots cannot measure ghosting or perceived panel grain.
 
 ## Document API extension
 
@@ -48,3 +48,5 @@ See [bridge.md](bridge.md) for the implemented document contract. A document add
 ## Native pen rendering
 
 Version 0.4.0 targets reported pen-down delay. The user approved the app-local Android 11 compatibility exception; native geometry initializes on the connected tablet. Exact scope and validation limits: [native-ink-status.md](native-ink-status.md). Standard Android Canvas redraws do not use BOOX’s direct ink path. Integrate the official TouchHelper SDK for transient panel ink, while finalized points remain in the existing per-page model for persistence and export. Native ink must pause for dialogs, focus loss, locked submissions, page changes and coordinate transforms. Unsupported firmware retains Canvas fallback. Validate activation and lifecycle on Note Air2 Plus; subjective latency requires real pen use because screenshots do not measure panel response.
+
+Margin-note refinement: use an unruled 96-pixel border, about 11 mm at 227 ppi, around generated Markdown and text pages. No dedicated comments section or box. Keep 36-pixel body text; repaginate instead of scaling down. Keep the source/page footer near the bottom edge. Existing review images remain immutable so saved ink stays aligned. Explicit image and scene coordinates remain unchanged; their author reserves the same border.

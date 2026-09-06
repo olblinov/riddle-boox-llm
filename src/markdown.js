@@ -108,20 +108,17 @@ function dimensions(width, height) {
       "Markdown page dimensions must be 600–4096 by 800–4096, at most 16 million pixels",
     );
   const scale = width / 1404;
-  // Match the Note Air2 Plus pixel grid. Leave space between lines for ink,
-  // rather than reserving a large column that reduces every line's width.
+  // Keep native-size text and a uniform writable border for handwritten notes.
   const font = Math.max(20, Math.round(36 * scale));
-  const margin = Math.round(24 * scale);
-  const annotation = 0;
+  const margin = Math.round(96 * scale);
   return {
     width,
     height,
     font,
     margin,
-    annotation,
-    contentWidth: width - margin * 2 - annotation,
-    top: Math.max(40, Math.round(48 * scale)),
-    bottom: Math.max(55, Math.round(64 * scale)),
+    contentWidth: width - margin * 2,
+    top: margin,
+    bottom: margin,
   };
 }
 
@@ -541,7 +538,7 @@ async function rasterizePage(page, geometry, index, count, filename, deadline) {
     [{ text: label }],
     Math.max(14, Math.round(font * 0.63)),
     margin,
-    height - geometry.bottom / 2,
+    height - Math.max(24, Math.round(32 * width / 1404)),
   );
   const background = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="white"/>${decorations.join("")}</svg>`,

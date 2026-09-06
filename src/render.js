@@ -47,7 +47,7 @@ export async function renderPage({
   if (text !== undefined) {
     const size = 36,
       spacing = 56,
-      margin = 24;
+      margin = Math.round(96 * width / 1404);
     const max = Math.floor((width - margin * 2) / (size * 0.62));
     if (max < 1) throw new Error("Page too narrow for text");
     const lines = [];
